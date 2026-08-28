@@ -1,0 +1,10 @@
+bin/
+obj/
+artifacts/
+.vs/
+*.user
+*.suo
+dist/*
+!dist/.gitkeep
+installer/output/
+*.log
