@@ -83,6 +83,7 @@ public sealed class LinkInfo : INotifyPropertyChanged
 
 public sealed class UserSettings
 {
+    public bool Armed { get; set; }
     public bool AutoBoost { get; set; }
     public string? EthernetId { get; set; }
     public string? WifiId { get; set; }

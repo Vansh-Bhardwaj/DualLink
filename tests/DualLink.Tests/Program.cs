@@ -42,6 +42,25 @@ if (sources.TakeLast(2).Any(x => x != "127.0.0.2"))
 
 Console.WriteLine("PASS: dual-link rotation and live zero-weight switching: " + string.Join(", ", sources));
 
+var filterRunning = false;
+var restartCount = 0;
+var health = new BoostHealthMonitor(
+    () => true,
+    () => Task.FromResult(filterRunning),
+    () =>
+    {
+        restartCount++;
+        filterRunning = true;
+        return Task.CompletedTask;
+    });
+
+if (!await health.CheckAndRecoverAsync() || restartCount != 1)
+    throw new Exception("Stopped filter was not recovered exactly once.");
+if (await health.CheckAndRecoverAsync() || restartCount != 1)
+    throw new Exception("Healthy filter was restarted unnecessarily.");
+
+Console.WriteLine("PASS: stopped application filter is detected and recovered");
+
 async Task SendRequestAsync(CancellationToken token)
 {
     using var client = new TcpClient();

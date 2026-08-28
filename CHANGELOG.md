@@ -2,6 +2,13 @@
 
 All notable DualLink changes are recorded here. Versions follow semantic versioning.
 
+## 2.0.1 - 2026-08-28
+
+- Fixed a false green “BOOSTING” state when the application filter service had stopped.
+- Added a two-second health check and automatic filter-service recovery.
+- Serialized timer, target-selection, arm/disarm, and shutdown operations to prevent service stop/start races.
+- Remembered the armed state across updates and restarts; explicit Exit and Restore still clears it.
+
 ## 2.0.0 - 2026-08-28
 
 - Rebuilt the interface around two focused surfaces: connection mix and applications.

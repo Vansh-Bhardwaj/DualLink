@@ -23,8 +23,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private readonly string _settingsPath;
     private readonly ProxiFyreManager _proxiFyre;
     private readonly Socks5Balancer _balancer;
+    private readonly BoostHealthMonitor _healthMonitor;
     private readonly DispatcherTimer _timer;
     private readonly bool _previewMode;
+    private readonly SemaphoreSlim _controllerGate = new(1, 1);
     private TrayManager? _tray;
     private UserSettings _settings = new();
     private LinkInfo? _selectedEthernet;
@@ -32,7 +34,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private bool _autoBoost = true;
     private bool _armed;
     private bool _boosting;
-    private bool _tickBusy;
+    private DateTime _nextHealthCheckUtc = DateTime.MinValue;
     private bool _allowClose;
     private bool _exitRequested;
     private bool _closeToTray = true;
@@ -51,6 +53,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         Directory.CreateDirectory(_settingsDirectory);
         _proxiFyre = new ProxiFyreManager(Log);
         _balancer = new Socks5Balancer(SocksPort, Log);
+        _healthMonitor = new BoostHealthMonitor(
+            () => _balancer.IsRunning,
+            _proxiFyre.IsServiceRunningAsync,
+            _proxiFyre.EnsureServiceRunningAsync);
 
         LoadProfilesAndSettings();
         RefreshAdapters();
@@ -63,6 +69,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 () => Dispatcher.BeginInvoke(ShowFromTray),
                 () => Dispatcher.BeginInvoke(async () => await ToggleArmedAsync()),
                 () => Dispatcher.BeginInvoke(ExitFromTray));
+            UpdateButton();
             StartWatchdog();
             _timer.Start();
             Loaded += async (_, _) => await RefreshPrerequisitesAsync();
@@ -124,6 +131,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
         AutoBoost = _settings.AutoBoost || !File.Exists(_settingsPath);
         CloseToTray = _settings.CloseToTray;
+        _armed = _settings.Armed;
         var defaults = new List<AppProfile>
         {
             new AppProfile { Name="Epic Games", Subtitle="Epic and EOS game downloads", Accent="#49B8FF", Processes=new(){"EpicGamesLauncher.exe","EpicOnlineServicesInstallHelper.exe"} },
@@ -177,8 +185,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private async void Timer_Tick(object? sender, EventArgs e)
     {
-        if (_tickBusy) return;
-        _tickBusy = true;
+        if (!await _controllerGate.WaitAsync(0)) return;
         try
         {
             NetworkDiscovery.UpdateRates(EthernetLinks.Concat(WifiLinks), 1);
@@ -189,6 +196,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             var shouldBoost = _armed && selected.Count > 0 && (!AutoBoost || selected.Any(x => x.IsRunning));
             if (shouldBoost && !_boosting) await StartBoostAsync(selected);
             else if (!shouldBoost && _boosting) await StopBoostAsync("No selected target is running");
+            else if (shouldBoost && _boosting && DateTime.UtcNow >= _nextHealthCheckUtc)
+            {
+                _nextHealthCheckUtc = DateTime.UtcNow.AddSeconds(2);
+                await VerifyBoostHealthAsync();
+            }
             else if (_armed && AutoBoost && !_boosting)
             {
                 StatusText = "ARMED — WAITING";
@@ -201,7 +213,21 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             Log($"Controller error: {ex.Message}");
             await StopBoostAsync("Safety stop");
         }
-        finally { _tickBusy = false; }
+        finally { _controllerGate.Release(); }
+    }
+
+    private async Task VerifyBoostHealthAsync()
+    {
+        if (!await _proxiFyre.IsServiceRunningAsync())
+        {
+            StatusText = "RECOVERING";
+            StatusColor = new SolidColorBrush(Color.FromRgb(255, 184, 77));
+            _tray?.Update(true, false);
+        }
+        if (!await _healthMonitor.CheckAndRecoverAsync()) return;
+        UpdateActiveRouteStatus();
+        _tray?.Update(true, true);
+        Log("Filter service recovered");
     }
 
     private void UpdateRunningProfiles()
@@ -282,6 +308,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         try
         {
             _settings.AutoBoost = AutoBoost;
+            _settings.Armed = _armed;
             _settings.EthernetId = SelectedEthernet?.Id;
             _settings.WifiId = SelectedWifi?.Id;
             _settings.EthernetWeight = SelectedEthernet?.Weight ?? 2;
@@ -328,7 +355,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private void Close_Click(object sender, RoutedEventArgs e)
     {
         if (!_previewMode && CloseToTray && !_exitRequested) Hide();
-        else { _exitRequested = true; Close(); }
+        else { _armed = false; _exitRequested = true; Close(); }
     }
 
     private void RefreshAdapters_Click(object sender, RoutedEventArgs e) => RefreshAdapters();
@@ -338,12 +365,30 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private void WifiWeightUp_Click(object sender, RoutedEventArgs e) => ChangeWeight(SelectedWifi, 1);
     private void EthernetOnly_Click(object sender, RoutedEventArgs e) => UseOnly(SelectedEthernet, SelectedWifi);
     private void WifiOnly_Click(object sender, RoutedEventArgs e) => UseOnly(SelectedWifi, SelectedEthernet);
-    private void ProfileSelection_Click(object sender, RoutedEventArgs e) { SaveSettings(); if (_boosting) _ = RestartForSelectionChangeAsync(); }
+    private async void ProfileSelection_Click(object sender, RoutedEventArgs e)
+    {
+        SaveSettings();
+        if (_boosting) await RestartForSelectionChangeAsync();
+    }
     private void AutoBoost_Click(object sender, RoutedEventArgs e) => SaveSettings();
 
     private async Task RestartForSelectionChangeAsync()
     {
-        await StopBoostAsync("Target selection changed");
+        await _controllerGate.WaitAsync();
+        try
+        {
+            await StopBoostAsync("Target selection changed");
+            UpdateRunningProfiles();
+            var selected = Profiles.Where(x => x.IsSelected).ToList();
+            var shouldBoost = _armed && selected.Count > 0 && (!AutoBoost || selected.Any(x => x.IsRunning));
+            if (shouldBoost) await StartBoostAsync(selected);
+        }
+        catch (Exception ex)
+        {
+            Log($"Target update failed: {ex.Message}");
+            await StopBoostAsync("Safety stop");
+        }
+        finally { _controllerGate.Release(); }
     }
 
     private async void BoostButton_Click(object sender, RoutedEventArgs e)
@@ -353,10 +398,16 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private async Task ToggleArmedAsync()
     {
-        _armed = !_armed;
-        UpdateButton();
-        if (!_armed) await StopBoostAsync("Boost disabled by user");
-        else Log("Auto-boost armed");
+        await _controllerGate.WaitAsync();
+        try
+        {
+            _armed = !_armed;
+            UpdateButton();
+            SaveSettings();
+            if (!_armed) await StopBoostAsync("Boost disabled by user");
+            else Log("Auto-boost armed");
+        }
+        finally { _controllerGate.Release(); }
     }
 
     private void ChangeWeight(LinkInfo? link, int delta)
@@ -425,6 +476,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void ExitFromTray()
     {
+        _armed = false;
+        SaveSettings();
         _exitRequested = true;
         Show();
         Close();
@@ -504,12 +557,19 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (_allowClose) return;
         e.Cancel = true;
         _timer.Stop();
-        await StopBoostAsync("DualLink closed — normal routing restored");
-        SaveSettings();
-        _tray?.Dispose();
-        _tray = null;
-        _allowClose = true;
-        Close();
+        await _controllerGate.WaitAsync();
+        try
+        {
+            _armed = false;
+            UpdateButton();
+            await StopBoostAsync("DualLink closed — normal routing restored");
+            SaveSettings();
+            _tray?.Dispose();
+            _tray = null;
+            _allowClose = true;
+            Close();
+        }
+        finally { _controllerGate.Release(); }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

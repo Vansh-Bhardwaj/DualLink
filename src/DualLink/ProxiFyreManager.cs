@@ -112,6 +112,15 @@ public sealed class ProxiFyreManager
         return result.Output.Contains("RUNNING", StringComparison.OrdinalIgnoreCase);
     }
 
+    public async Task EnsureServiceRunningAsync()
+    {
+        if (await IsServiceRunningAsync()) return;
+        _log("Filter service stopped unexpectedly — restarting");
+        await StartServiceAsync();
+        if (!await IsServiceRunningAsync())
+            throw new InvalidOperationException("ProxiFyre did not remain running after restart.");
+    }
+
     private async Task StartServiceAsync()
     {
         var result = await RunScAsync("start", ServiceName, false);
