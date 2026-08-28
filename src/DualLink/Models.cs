@@ -37,7 +37,7 @@ public sealed class AppProfile : INotifyPropertyChanged
         }
     }
 
-    [JsonIgnore] public string RunState => IsRunning ? "RUNNING" : "IDLE";
+    [JsonIgnore] public string RunState => IsRunning ? "Running" : "Idle";
     [JsonIgnore] public string ProcessSummary => string.Join(" · ", Processes.Select(Path.GetFileNameWithoutExtension));
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -71,7 +71,7 @@ public sealed class LinkInfo : INotifyPropertyChanged
     }
 
     public string SpeedText => $"{DownloadMbps:0.0} Mbps";
-    public string WeightText => Weight == 0 ? "OFF" : $"{Weight}×";
+    public string WeightText => Weight == 0 ? "Off" : $"{Weight}×";
     public bool IsEnabled => Weight > 0;
     public string DisplayName => Name;
     public string DiagnosticName => $"{Name} · {Address}";

@@ -17,4 +17,7 @@
     <Authors>DualLink</Authors>
     <Product>DualLink Application Booster</Product>
   </PropertyGroup>
+  <ItemGroup>
+    <Page Remove="MainWindow.xaml" />
+  </ItemGroup>
 </Project>

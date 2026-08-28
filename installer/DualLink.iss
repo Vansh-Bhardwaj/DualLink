@@ -34,6 +34,8 @@ VersionInfoProductVersion={#AppVersion}
 VersionInfoCompany={#AppPublisher}
 VersionInfoDescription=DualLink offline installer
 SetupIconFile=..\assets\DualLink.ico
+LicenseFile=..\LICENSE
+InfoBeforeFile=..\INSTALL-NOTICE.txt
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"; Flags: unchecked
@@ -44,8 +46,14 @@ Source: "prereqs\VC_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "prereqs\Windows.Packet.Filter.3.6.2.1.x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "prereqs\ProxiFyre-2.5.0-win-x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "..\THIRD-PARTY-NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\PRIVACY.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\SECURITY.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\dist\DualLink.spdx.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "licenses\ProxiFyre-AGPL-3.0.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
 Source: "licenses\Windows-Packet-Filter-MIT.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
+Source: "licenses\dotnet-runtime-MIT.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
+Source: "licenses\dotnet-runtime-THIRD-PARTY-NOTICES.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\DualLink"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"
@@ -61,7 +69,7 @@ Filename: "{app}\{#AppExeName}"; Description: "Launch DualLink"; Flags: nowait p
 [Code]
 function PacketFilterInstalled: Boolean;
 begin
-  Result := FileExists(ExpandConstant('{sys}\drivers\ndisapi.sys'));
+  Result := FileExists(ExpandConstant('{sys}\drivers\ndisrd.sys'));
 end;
 
 function ProxiFyreInstalled: Boolean;

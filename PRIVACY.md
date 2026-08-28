@@ -1,0 +1,30 @@
+# Privacy
+
+Effective: 2026-08-28
+
+DualLink does not include analytics, advertising, telemetry, crash upload, user accounts, or a remote service operated by the project.
+
+## Data stored locally
+
+DualLink stores the following under `%LOCALAPPDATA%\DualLink`:
+
+- selected applications and network adapters;
+- route weights and UI preferences;
+- a temporary recovery record while boosting is active;
+- a temporary backup of the pre-existing ProxiFyre configuration, when one exists.
+
+Activity messages are kept in memory for the current session. ProxiFyre may write operational logs under its installation directory. DualLink does not transmit these files.
+
+## Network behavior
+
+When armed, DualLink redirects TCP connections created by applications the user explicitly selects to a SOCKS5 balancer running only on `127.0.0.1`. The balancer then creates outbound connections through the selected local adapters to the destination requested by that application. DualLink does not decrypt, inspect, retain, or upload application payloads.
+
+Normal destination services, launchers, browsers, internet providers, hotspot providers, and operating-system components may process network data under their own policies. DualLink does not change those third-party practices.
+
+## Administrative access
+
+DualLink requests administrator privileges because it controls a local Windows service and writes its local filter configuration. It does not alter Windows privacy settings or collect credentials.
+
+## Removal
+
+Uninstalling DualLink removes the application. Shared prerequisites are left installed to avoid breaking other software. Local settings can be removed manually from `%LOCALAPPDATA%\DualLink` after DualLink is disarmed and closed.

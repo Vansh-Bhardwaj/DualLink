@@ -38,9 +38,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private bool _allowClose;
     private bool _exitRequested;
     private bool _closeToTray = true;
-    private string _statusText = "DEFAULT ROUTING";
+    private string _statusText = "Ready";
     private Brush _statusColor = new SolidColorBrush(Color.FromRgb(140, 150, 165));
-    private string _prerequisiteText = "CHECKING";
+    private string _prerequisiteText = "Checking";
 
     public MainWindow(bool previewMode = false)
     {
@@ -76,9 +76,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
         else
         {
-            PrerequisiteText = "READY";
+            PrerequisiteText = "Ready";
             UpdateRunningProfiles();
-            StatusText = "DESIGN PREVIEW";
+            StatusText = "Preview";
             StatusColor = new SolidColorBrush(Color.FromRgb(69, 198, 255));
         }
         Closing += MainWindow_Closing;
@@ -118,6 +118,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public Brush StatusColor { get => _statusColor; private set { _statusColor = value; OnPropertyChanged(); } }
     public string PrerequisiteText { get => _prerequisiteText; private set { _prerequisiteText = value; OnPropertyChanged(); } }
     public int ActiveConnections => _balancer.ActiveConnections;
+    public string CombinedSpeedText => $"{(SelectedEthernet?.DownloadMbps ?? 0) + (SelectedWifi?.DownloadMbps ?? 0):0.0} Mbps";
     public string VersionText => $"Version {Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "2.0.0"}";
 
     private void LoadProfilesAndSettings()
@@ -179,7 +180,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private async Task RefreshPrerequisitesAsync()
     {
         var check = await _proxiFyre.CheckPrerequisitesAsync();
-        PrerequisiteText = check.Installed ? "READY" : "INSTALL NEEDED";
+        PrerequisiteText = check.Installed ? "Ready" : "Needs setup";
         if (!check.Installed) Log(check.Message);
     }
 
@@ -190,6 +191,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             NetworkDiscovery.UpdateRates(EthernetLinks.Concat(WifiLinks), 1);
             OnPropertyChanged(nameof(ActiveConnections));
+            OnPropertyChanged(nameof(CombinedSpeedText));
             UpdateRunningProfiles();
 
             var selected = Profiles.Where(x => x.IsSelected).ToList();
@@ -203,7 +205,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             }
             else if (_armed && AutoBoost && !_boosting)
             {
-                StatusText = "ARMED — WAITING";
+                StatusText = "Waiting";
                 StatusColor = new SolidColorBrush(Color.FromRgb(255, 184, 77));
                 _tray?.Update(true, false);
             }
@@ -220,7 +222,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         if (!await _proxiFyre.IsServiceRunningAsync())
         {
-            StatusText = "RECOVERING";
+            StatusText = "Recovering…";
             StatusColor = new SolidColorBrush(Color.FromRgb(255, 184, 77));
             _tray?.Update(true, false);
         }
@@ -246,13 +248,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         var prerequisite = await _proxiFyre.CheckPrerequisitesAsync();
         if (!prerequisite.Installed)
         {
-            PrerequisiteText = "INSTALL NEEDED";
+            PrerequisiteText = "Needs setup";
             _armed = false;
             UpdateButton();
             throw new InvalidOperationException(prerequisite.Message);
         }
 
-        StatusText = "STARTING";
+        StatusText = "Starting…";
         await _balancer.StartAsync(new[]
         {
             (SelectedEthernet.Address, SelectedEthernet.Weight),
@@ -284,7 +286,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             _boosting = false;
             Log(reason);
         }
-        StatusText = _armed ? "ARMED — WAITING" : "DEFAULT ROUTING";
+        StatusText = _armed ? "Waiting" : "Ready";
         StatusColor = new SolidColorBrush(_armed ? Color.FromRgb(255, 184, 77) : Color.FromRgb(140, 150, 165));
         _tray?.Update(_armed, false);
     }
@@ -332,9 +334,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void UpdateButton()
     {
-        BoostButton.Content = _armed ? "DISARM / RESTORE" : "ARM AUTO-BOOST";
-        BoostButton.Background = new SolidColorBrush(_armed ? Color.FromRgb(160, 55, 76) : Color.FromRgb(22, 140, 196));
-        BoostButton.BorderBrush = new SolidColorBrush(_armed ? Color.FromRgb(255, 107, 126) : Color.FromRgb(72, 201, 255));
+        BoostButton.Content = _armed ? "Restore routing" : "Enable boost";
+        BoostButton.Background = new SolidColorBrush(_armed ? Color.FromRgb(72, 73, 82) : Color.FromRgb(125, 143, 255));
+        BoostButton.BorderBrush = new SolidColorBrush(_armed ? Color.FromRgb(92, 93, 104) : Color.FromRgb(125, 143, 255));
+        BoostButton.Foreground = new SolidColorBrush(_armed ? Color.FromRgb(245, 245, 247) : Color.FromRgb(16, 17, 22));
         _tray?.Update(_armed, _boosting);
     }
 
@@ -445,7 +448,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void UpdateActiveRouteStatus()
     {
-        StatusText = SelectedEthernet?.Weight == 0 ? "WI-FI ONLY" : SelectedWifi?.Weight == 0 ? "ETHERNET ONLY" : "BOOSTING";
+        StatusText = SelectedEthernet?.Weight == 0 ? "Wi-Fi only" : SelectedWifi?.Weight == 0 ? "Ethernet only" : "Boosting";
         StatusColor = new SolidColorBrush(Color.FromRgb(85, 230, 165));
     }
 
@@ -509,7 +512,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         var check = await _proxiFyre.CheckPrerequisitesAsync();
         if (check.Installed)
         {
-            PrerequisiteText = "READY";
+            PrerequisiteText = "Ready";
             MessageBox.Show("ProxiFyre and Windows Packet Filter are already installed.", "DualLink", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }

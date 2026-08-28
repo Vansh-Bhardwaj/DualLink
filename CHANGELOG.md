@@ -2,6 +2,14 @@
 
 All notable DualLink changes are recorded here. Versions follow semantic versioning.
 
+## 2.1.0 - 2026-08-28
+
+- Reworked the interface into a quiet utility pane and a single application list with clearer hierarchy, restrained color, and native-feeling controls.
+- Added live combined throughput and kept diagnostics, IP addresses, and activity logs in an on-demand drawer.
+- Added an AGPL-3.0 project license, privacy and security policies, installation disclosure, corrected third-party notices, SPDX SBOM, and release checksums.
+- Documented the Windows Packet Filter driver and Inno Setup restrictions that apply before commercial distribution.
+- Preserved live route switching, automatic browser discovery, tray behavior, watchdog recovery, and 2.0.1 service recovery.
+
 ## 2.0.1 - 2026-08-28
 
 - Fixed a false green “BOOSTING” state when the application filter service had stopped.

@@ -1,0 +1,17 @@
+DUALLINK INSTALLATION NOTICE
+
+DualLink is a Windows networking utility that requires administrator privileges.
+It installs or uses the ProxiFyre service and the Windows Packet Filter kernel driver,
+temporarily changes ProxiFyre's configuration while boosting, and restores the previous
+configuration when disarmed or exited.
+
+The bundled Windows Packet Filter driver is licensed for personal, educational, and
+nonprofit use. Commercial use requires a separate license from NT Kernel Resources:
+https://www.ntkernel.com/windows-packet-filter/licensing/
+
+The installer is produced as a free, noncommercial release. Commercial builders must
+also comply with Inno Setup's commercial licensing terms.
+
+The installer and application are currently unsigned. Verify release checksums before
+running downloaded files. Read LICENSE, PRIVACY.md, SECURITY.md, and
+THIRD-PARTY-NOTICES.md before redistribution.

@@ -18,6 +18,9 @@ if ($LASTEXITCODE -ne 0) { throw 'Integration tests failed.' }
 dotnet publish $appProject -c Release -p:PublishProfile=win-x64 -p:Version=$version --output $publishDirectory
 if ($LASTEXITCODE -ne 0) { throw 'Self-contained publish failed.' }
 
+$sbomPath = Join-Path $repoRoot 'dist\DualLink.spdx.json'
+& (Join-Path $repoRoot 'tools\Generate-Sbom.ps1') -Version $version -ApplicationPath (Join-Path $publishDirectory 'DualLink.exe') -OutputPath $sbomPath
+
 if (-not $SkipInstaller) {
     $compiler = @(
         (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe'),
@@ -27,6 +30,17 @@ if (-not $SkipInstaller) {
     if (-not $compiler) { throw 'Inno Setup 6 was not found.' }
     & $compiler "/DAppVersion=$version" (Join-Path $repoRoot 'installer\DualLink.iss')
     if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed.' }
+
+    $releaseFiles = @(
+        (Join-Path $repoRoot "dist\DualLink-$version-Setup-x64.exe"),
+        (Join-Path $publishDirectory 'DualLink.exe'),
+        $sbomPath
+    )
+    $checksumLines = foreach ($file in $releaseFiles) {
+        $hash = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+        "$hash  $(Split-Path -Leaf $file)"
+    }
+    $checksumLines | Set-Content -LiteralPath (Join-Path $repoRoot 'dist\SHA256SUMS.txt') -Encoding ascii
 }
 
 Write-Host "DualLink $version build complete: $repoRoot\dist"
