@@ -51,6 +51,8 @@ The checked-in installer configuration is intended for a free, noncommercial rel
 
 Run `build.ps1`. The script restores from NuGet.org, runs the integration test, publishes a self-contained single executable, and compiles the offline installer into `dist`.
 
+Development checkpoints use annotated `-dev.N` tags without GitHub Releases. Public Releases are reserved for substantial stable milestones that pass the complete [version and release policy](docs/RELEASE-POLICY.md).
+
 End users do not need .NET, ProxiFyre, Windows Packet Filter, or the Visual C++ runtime installed beforehand; the offline setup contains them.
 
 ## Safety model

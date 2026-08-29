@@ -12,6 +12,9 @@ jobs:
   candidate:
     runs-on: windows-latest
     steps:
+      - name: Candidate policy
+        shell: pwsh
+        run: Write-Host "Candidate artifacts are for evaluation only; this workflow never creates a GitHub Release."
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v6
         with:

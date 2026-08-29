@@ -1,0 +1,40 @@
+name: Tag policy
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate tag and version metadata
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $props = [xml](Get-Content -Raw -LiteralPath "Directory.Build.props")
+          $informational = [string]$props.Project.PropertyGroup.InformationalVersion
+          $numeric = (Get-Content -Raw -LiteralPath "VERSION").Trim()
+
+          if ($tag -match '^v(?<version>\d+\.\d+\.\d+-dev\.\d+)$') {
+            if ($informational -ne $Matches.version) {
+              throw "Development tag $tag does not match InformationalVersion $informational."
+            }
+            "Development checkpoint validated. No GitHub Release is created by this workflow."
+            exit 0
+          }
+
+          if ($tag -match '^v(?<version>\d+\.\d+\.\d+)$') {
+            if ($numeric -ne $Matches.version -or $informational -ne $Matches.version) {
+              throw "Stable tag $tag does not match VERSION ($numeric) and InformationalVersion ($informational)."
+            }
+            "Stable version identity validated. Publishing still requires the manual release gate."
+            exit 0
+          }
+
+          throw "Tag $tag is not a supported DualLink version tag."
