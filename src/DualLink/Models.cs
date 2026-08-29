@@ -104,10 +104,45 @@ public sealed class UserSettings
     public int EthernetWeight { get; set; } = 2;
     public int WifiWeight { get; set; } = 5;
     public bool CloseToTray { get; set; } = true;
+    public int BandwidthLimitMbps { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public int DownloadLimitMbps { get; set; }
     public RoutingMode RoutingMode { get; set; } = RoutingMode.Smart;
+    public UpdateChannel UpdateChannel { get; set; } = UpdateChannel.Stable;
     public List<string> SelectedProfiles { get; set; } = new();
     public List<AppProfile> CustomProfiles { get; set; } = new();
+}
+
+public enum UpdateChannel
+{
+    Stable,
+    Preview
+}
+
+public sealed class UpdateChannelOption
+{
+    public required UpdateChannel Channel { get; init; }
+    public required string DisplayName { get; init; }
+    public required string Description { get; init; }
+    public override string ToString() => DisplayName;
+}
+
+public enum DiagnosticState
+{
+    Good,
+    Notice,
+    Problem
+}
+
+public sealed record ConnectionCheckResult(string Title, string Message, DiagnosticState State)
+{
+    [JsonIgnore]
+    public string Accent => State switch
+    {
+        DiagnosticState.Good => "#66D49A",
+        DiagnosticState.Notice => "#F2B84B",
+        _ => "#F06C7B"
+    };
 }
 
 public sealed class BandwidthOption

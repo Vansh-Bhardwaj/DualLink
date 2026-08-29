@@ -11,7 +11,8 @@ public readonly record struct TraySnapshot(
     double DownloadMbps,
     double UploadMbps,
     int ActiveConnections,
-    string RoutingMode);
+    string RoutingMode,
+    string RouteQuality);
 
 public sealed class TrayManager : IDisposable
 {
@@ -20,6 +21,7 @@ public sealed class TrayManager : IDisposable
     private readonly Forms.ToolStripLabel _statusItem;
     private readonly Forms.ToolStripLabel _speedItem;
     private readonly Forms.ToolStripLabel _sessionsItem;
+    private readonly Forms.ToolStripLabel _qualityItem;
     private readonly Forms.ToolStripMenuItem _toggleItem;
     private Icon? _currentIcon;
     private bool? _lastArmed;
@@ -40,6 +42,12 @@ public sealed class TrayManager : IDisposable
             Padding = new Forms.Padding(10, 1, 10, 1)
         };
         _sessionsItem = new Forms.ToolStripLabel("0 active sessions")
+        {
+            Font = new Font("Segoe UI Variable Text", 8.5f),
+            ForeColor = Color.FromArgb(131, 146, 166),
+            Padding = new Forms.Padding(10, 1, 10, 8)
+        };
+        _qualityItem = new Forms.ToolStripLabel("Connections ready")
         {
             Font = new Font("Segoe UI Variable Text", 8.5f),
             ForeColor = Color.FromArgb(131, 146, 166),
@@ -80,6 +88,7 @@ public sealed class TrayManager : IDisposable
             _statusItem,
             _speedItem,
             _sessionsItem,
+            _qualityItem,
             new Forms.ToolStripSeparator(),
             openItem,
             _toggleItem,
@@ -97,7 +106,7 @@ public sealed class TrayManager : IDisposable
         {
             if (e.Button == Forms.MouseButtons.Left) show();
         };
-        Update(new TraySnapshot(false, false, 0, 0, 0, "Smart"));
+        Update(new TraySnapshot(false, false, 0, 0, 0, "Smart", "Connections ready"));
     }
 
     public void Update(TraySnapshot snapshot)
@@ -106,9 +115,10 @@ public sealed class TrayManager : IDisposable
         _statusItem.Text = state;
         _speedItem.Text = $"↓ {snapshot.DownloadMbps:0.0} Mbps    ↑ {snapshot.UploadMbps:0.0} Mbps";
         _sessionsItem.Text = snapshot.ActiveConnections == 1 ? "1 active session" : $"{snapshot.ActiveConnections} active sessions";
+        _qualityItem.Text = snapshot.RouteQuality;
         _toggleItem.Text = snapshot.Armed ? "Disarm and restore" : "Arm automatic boost";
 
-        var tooltip = $"DualLink — {state}\n↓ {snapshot.DownloadMbps:0.0} Mbps · ↑ {snapshot.UploadMbps:0.0} Mbps\n{_sessionsItem.Text}";
+        var tooltip = $"DualLink — {state}\n↓ {snapshot.DownloadMbps:0.0} Mbps · ↑ {snapshot.UploadMbps:0.0} Mbps\n{snapshot.RouteQuality}";
         _notifyIcon.Text = tooltip.Length <= 127 ? tooltip : tooltip[..127];
 
         if (_lastArmed == snapshot.Armed && _lastBoosting == snapshot.Boosting) return;
@@ -121,6 +131,14 @@ public sealed class TrayManager : IDisposable
         _notifyIcon.Icon = nextIcon;
         _currentIcon?.Dispose();
         _currentIcon = nextIcon;
+    }
+
+    public void Notify(string title, string message, Forms.ToolTipIcon icon = Forms.ToolTipIcon.Info)
+    {
+        _notifyIcon.BalloonTipTitle = title;
+        _notifyIcon.BalloonTipText = message;
+        _notifyIcon.BalloonTipIcon = icon;
+        _notifyIcon.ShowBalloonTip(4000);
     }
 
     public void ShowMenuForPreview() => _menu.Show(Forms.Cursor.Position);

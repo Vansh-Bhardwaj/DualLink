@@ -25,10 +25,12 @@ DualLink leaves normal Windows routing alone for every application you have not 
 2. Pick each connection. Wi-Fi choices show the connected network or hotspot name.
 3. Choose the applications and select **Enable boost**.
 4. Use **Use this only** or lower a route to **Off** when you want new connections on one link. Existing connections are left alone.
-5. Optionally choose a download limit to leave bandwidth for streaming, calls, or browsing. The limit changes live.
-6. Close the window to keep DualLink in the notification area. Hover for live combined speed and session count, or right-click for the compact DualLink status menu. Use **Exit and restore** to return the filter to its previous configuration.
+5. Optionally choose one combined bandwidth limit to leave room for streaming, calls, or browsing. It covers download and upload traffic and changes live.
+6. Close the window to keep DualLink in the notification area. Hover for live combined speed, connection quality, and session context, or right-click for the compact DualLink status menu. Use **Exit and restore** to return the filter to its previous configuration.
 
-The Details drawer contains IP addresses, driver state, route health, session count, and logs. The default browser is detected from Windows settings and added automatically. Custom applications are matched by their full executable path so another program with the same filename is not selected accidentally.
+The Details drawer explains filter readiness, route quality, and whether active sessions can use both connections. **Check connections** verifies each selected route, DNS, route independence, and application filtering in plain language. Technical activity remains hidden until requested. The default browser is detected from Windows settings and added automatically. Custom applications are matched by their full executable path so another program with the same filename is not selected accidentally.
+
+The one-minute sparkline shows the Ethernet and Wi-Fi contribution using traffic counters DualLink already collects. Settings can check either substantial Stable releases or development Preview tags, but DualLink never downloads or installs an update silently.
 
 <details>
 <summary>Settings and diagnostics stay out of the way until requested</summary>
@@ -53,7 +55,7 @@ End users do not need .NET, ProxiFyre, Windows Packet Filter, or the Visual C++ 
 
 ## Safety model
 
-DualLink only filters processes the user selects. Its local proxy listens on loopback, uses fresh random credentials for each run, and is not exposed to the LAN. Disarming or exiting restores the previous ProxiFyre configuration. A small independent watchdog also restores the configuration if the UI process exits unexpectedly. Recovery paths are constrained to DualLink's own state and the expected ProxiFyre config. A weight of zero affects new connections only.
+DualLink only filters processes the user selects. Its local proxy listens on loopback, uses fresh random credentials for each run, and is not exposed to the LAN. Disarming or exiting restores the previous ProxiFyre configuration. A small independent watchdog also restores the configuration if the UI process exits unexpectedly. Recovery paths are constrained to DualLink's own state and the expected ProxiFyre config. Adapter changes are detected automatically; an available route continues carrying new sessions while another reconnects. A weight of zero affects new connections only.
 
 ## Limits
 

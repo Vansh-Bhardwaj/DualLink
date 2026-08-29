@@ -5,7 +5,7 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Security.Cryptography;
-using System.Reflection;
+using System.Net.NetworkInformation;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -25,6 +25,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private readonly ProxyCredentials _proxyCredentials;
     private readonly BoostHealthMonitor _healthMonitor;
     private readonly DispatcherTimer _timer;
+    private readonly DispatcherTimer _networkDebounceTimer;
     private readonly bool _previewMode;
     private readonly SemaphoreSlim _controllerGate = new(1, 1);
     private TrayManager? _tray;
@@ -33,6 +34,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private LinkInfo? _selectedWifi;
     private BandwidthOption? _selectedBandwidthOption;
     private RoutingModeOption? _selectedRoutingModeOption;
+    private UpdateChannelOption? _selectedUpdateChannelOption;
     private bool _autoBoost = true;
     private bool _armed;
     private bool _boosting;
@@ -46,6 +48,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private string _prerequisiteText = "Checking";
     private DateTime _lastRateUpdateUtc = DateTime.UtcNow;
     private DateTime _nextProcessScanUtc = DateTime.MinValue;
+    private CancellationTokenSource? _diagnosticsCts;
+    private string _diagnosticsSummaryText = "Run a check when something feels wrong.";
+    private string _updateStatusText = "Updates are checked only when you ask.";
+    private string? _availableUpdateUrl;
+    private readonly Queue<TrafficSample> _trafficHistory = new();
 
     public MainWindow(bool previewMode = false)
     {
@@ -70,6 +77,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _timer.Tick += Timer_Tick;
+        _networkDebounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(900) };
+        _networkDebounceTimer.Tick += NetworkDebounce_Tick;
         if (!_previewMode)
         {
             _tray = new TrayManager(
@@ -79,6 +88,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             UpdateButton();
             StartWatchdog();
             _timer.Start();
+            NetworkChange.NetworkAddressChanged += NetworkChanged;
+            NetworkChange.NetworkAvailabilityChanged += NetworkChanged;
+            SystemEvents.PowerModeChanged += PowerModeChanged;
             Loaded += async (_, _) => await RefreshPrerequisitesAsync();
         }
         else
@@ -88,6 +100,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 profile.IsRunning = profile.Name is "Default browser" or "Steam";
             StatusText = "Preview";
             StatusColor = new SolidColorBrush(Color.FromRgb(69, 198, 255));
+            DiagnosticsSummaryText = "Both connections are ready";
+            Diagnostics.Add(new ConnectionCheckResult("Ethernet", "Wired connection reached the internet in 18 ms.", DiagnosticState.Good));
+            Diagnostics.Add(new ConnectionCheckResult("Wi-Fi", "Mobile hotspot reached the internet in 42 ms.", DiagnosticState.Good));
+            Diagnostics.Add(new ConnectionCheckResult("Name lookup", "Web addresses are resolving normally.", DiagnosticState.Good));
+            SeedPreviewTraffic();
         }
         Closing += MainWindow_Closing;
         Log(_previewMode ? "Read-only design preview" : "DualLink ready — normal routing is active");
@@ -97,6 +114,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public ObservableCollection<LinkInfo> EthernetLinks { get; } = new();
     public ObservableCollection<LinkInfo> WifiLinks { get; } = new();
     public ObservableCollection<string> Activity { get; } = new();
+    public ObservableCollection<ConnectionCheckResult> Diagnostics { get; } = new();
     public ObservableCollection<BandwidthOption> BandwidthOptions { get; } = new()
     {
         new BandwidthOption { Mbps = 0, DisplayName = "No limit" },
@@ -112,17 +130,22 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         new RoutingModeOption { Mode = RoutingMode.Balanced, DisplayName = "Balanced", Description = "Follows your connection shares" },
         new RoutingModeOption { Mode = RoutingMode.Failover, DisplayName = "Backup", Description = "Ethernet first, Wi-Fi if it fails" }
     };
+    public ObservableCollection<UpdateChannelOption> UpdateChannelOptions { get; } = new()
+    {
+        new UpdateChannelOption { Channel = UpdateChannel.Stable, DisplayName = "Stable", Description = "Only substantial public releases" },
+        new UpdateChannelOption { Channel = UpdateChannel.Preview, DisplayName = "Preview", Description = "Development tags, including alpha builds" }
+    };
 
     public LinkInfo? SelectedEthernet
     {
         get => _selectedEthernet;
-        set { if (_selectedEthernet != value) { _selectedEthernet = value; OnPropertyChanged(); OnPropertyChanged(nameof(CombinedSpeedText)); OnPropertyChanged(nameof(CombinedUploadSpeedText)); SaveSettings(); } }
+        set { if (_selectedEthernet != value) { _selectedEthernet = value; OnPropertyChanged(); OnPropertyChanged(nameof(CombinedSpeedText)); OnPropertyChanged(nameof(CombinedUploadSpeedText)); OnPropertyChanged(nameof(EthernetQualityText)); SaveSettings(); } }
     }
 
     public LinkInfo? SelectedWifi
     {
         get => _selectedWifi;
-        set { if (_selectedWifi != value) { _selectedWifi = value; OnPropertyChanged(); OnPropertyChanged(nameof(CombinedSpeedText)); OnPropertyChanged(nameof(CombinedUploadSpeedText)); SaveSettings(); } }
+        set { if (_selectedWifi != value) { _selectedWifi = value; OnPropertyChanged(); OnPropertyChanged(nameof(CombinedSpeedText)); OnPropertyChanged(nameof(CombinedUploadSpeedText)); OnPropertyChanged(nameof(WifiQualityText)); SaveSettings(); } }
     }
 
     public bool AutoBoost
@@ -145,7 +168,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             if (_selectedBandwidthOption == value) return;
             _selectedBandwidthOption = value;
             OnPropertyChanged();
-            _balancer.SetDownloadLimit(value?.Mbps ?? 0);
+            _balancer.SetBandwidthLimit(value?.Mbps ?? 0);
             SaveSettings();
         }
     }
@@ -165,12 +188,43 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     public string RoutingModeDescription => SelectedRoutingModeOption?.Description ?? string.Empty;
 
+    public UpdateChannelOption? SelectedUpdateChannelOption
+    {
+        get => _selectedUpdateChannelOption;
+        set
+        {
+            if (_selectedUpdateChannelOption == value) return;
+            _selectedUpdateChannelOption = value;
+            _availableUpdateUrl = null;
+            UpdateStatusText = value?.Description ?? string.Empty;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(UpdateActionText));
+            SaveSettings();
+        }
+    }
+
+    public string UpdateStatusText
+    {
+        get => _updateStatusText;
+        private set { if (_updateStatusText != value) { _updateStatusText = value; OnPropertyChanged(); } }
+    }
+    public string UpdateActionText => _availableUpdateUrl is null ? "Check now" : "View version";
+
     public string StatusText { get => _statusText; private set { _statusText = value; OnPropertyChanged(); } }
     public Brush StatusColor { get => _statusColor; private set { _statusColor = value; OnPropertyChanged(); } }
     public string PrerequisiteText { get => _prerequisiteText; private set { _prerequisiteText = value; OnPropertyChanged(); } }
     public int ActiveConnections => _balancer.ActiveConnections;
     public string CombinedSpeedText => $"{(SelectedEthernet?.DownloadMbps ?? 0) + (SelectedWifi?.DownloadMbps ?? 0):0.0} Mbps";
     public string CombinedUploadSpeedText => $"{(SelectedEthernet?.UploadMbps ?? 0) + (SelectedWifi?.UploadMbps ?? 0):0.0} Mbps";
+    public PointCollection EthernetGraphPoints => BuildTrafficPoints(x => x.EthernetMbps);
+    public PointCollection WifiGraphPoints => BuildTrafficPoints(x => x.WifiMbps);
+    public string DiagnosticsSummaryText
+    {
+        get => _diagnosticsSummaryText;
+        private set { if (_diagnosticsSummaryText != value) { _diagnosticsSummaryText = value; OnPropertyChanged(); } }
+    }
+    public string EthernetQualityText => GetQualityText(SelectedEthernet);
+    public string WifiQualityText => GetQualityText(SelectedWifi);
     public string RouteHealthText
     {
         get
@@ -182,7 +236,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 : $"Using backup · {string.Join(", ", unavailable)} unavailable";
         }
     }
-    public string VersionText => $"Version {Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "2.0.0"}";
+    public string VersionText => $"Version {UpdateChecker.CurrentVersion}";
 
     private void LoadProfilesAndSettings()
     {
@@ -197,8 +251,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         AutoBoost = _settings.AutoBoost || !File.Exists(_settingsPath);
         CloseToTray = _settings.CloseToTray;
         _armed = _settings.Armed;
-        SelectedBandwidthOption = BandwidthOptions.FirstOrDefault(x => x.Mbps == _settings.DownloadLimitMbps) ?? BandwidthOptions[0];
+        var savedLimit = _settings.BandwidthLimitMbps > 0 ? _settings.BandwidthLimitMbps : _settings.DownloadLimitMbps;
+        SelectedBandwidthOption = BandwidthOptions.FirstOrDefault(x => x.Mbps == savedLimit) ?? BandwidthOptions[0];
         SelectedRoutingModeOption = RoutingModeOptions.FirstOrDefault(x => x.Mode == _settings.RoutingMode) ?? RoutingModeOptions[0];
+        SelectedUpdateChannelOption = UpdateChannelOptions.FirstOrDefault(x => x.Channel == _settings.UpdateChannel) ?? UpdateChannelOptions[0];
         var defaults = new List<AppProfile>
         {
             new AppProfile { Name="Epic Games", Subtitle="Epic and EOS game downloads", Accent="#49B8FF", Processes=new(){"EpicGamesLauncher.exe","EpicOnlineServicesInstallHelper.exe"} },
@@ -230,21 +286,37 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _loadingSettings = false;
     }
 
-    private void RefreshAdapters()
+    private void RefreshAdapters(bool logDiscovery = true)
     {
+        var ethernetId = SelectedEthernet?.Id ?? _settings.EthernetId;
+        var wifiId = SelectedWifi?.Id ?? _settings.WifiId;
+        var ethernetWeight = SelectedEthernet?.Weight ?? _settings.EthernetWeight;
+        var wifiWeight = SelectedWifi?.Weight ?? _settings.WifiWeight;
         var discovered = NetworkDiscovery.FindInternetLinks();
-        EthernetLinks.Clear();
-        WifiLinks.Clear();
-        foreach (var link in discovered.Where(x => x.Kind == "Ethernet")) EthernetLinks.Add(link);
-        foreach (var link in discovered.Where(x => x.Kind == "Wi-Fi")) WifiLinks.Add(link);
+        _loadingSettings = true;
+        try
+        {
+            EthernetLinks.Clear();
+            WifiLinks.Clear();
+            foreach (var link in discovered.Where(x => x.Kind == "Ethernet")) EthernetLinks.Add(link);
+            foreach (var link in discovered.Where(x => x.Kind == "Wi-Fi")) WifiLinks.Add(link);
 
-        SelectedEthernet = EthernetLinks.FirstOrDefault(x => x.Id == _settings.EthernetId) ?? EthernetLinks.FirstOrDefault();
-        SelectedWifi = WifiLinks.FirstOrDefault(x => x.Id == _settings.WifiId) ?? WifiLinks.FirstOrDefault();
-        if (SelectedEthernet is not null) SelectedEthernet.Weight = _settings.EthernetWeight;
-        if (SelectedWifi is not null) SelectedWifi.Weight = _settings.WifiWeight;
-        if (SelectedEthernet?.Weight == 0 && SelectedWifi?.Weight == 0 && SelectedEthernet is not null)
-            SelectedEthernet.Weight = 1;
-        Log($"Detected {EthernetLinks.Count} Ethernet and {WifiLinks.Count} Wi-Fi internet link(s)");
+            _selectedEthernet = EthernetLinks.FirstOrDefault(x => x.Id == ethernetId) ?? EthernetLinks.FirstOrDefault();
+            _selectedWifi = WifiLinks.FirstOrDefault(x => x.Id == wifiId) ?? WifiLinks.FirstOrDefault();
+            if (_selectedEthernet is not null) _selectedEthernet.Weight = ethernetWeight;
+            if (_selectedWifi is not null) _selectedWifi.Weight = wifiWeight;
+            if (_selectedEthernet?.Weight == 0 && _selectedWifi?.Weight == 0 && _selectedEthernet is not null)
+                _selectedEthernet.Weight = 1;
+            OnPropertyChanged(nameof(SelectedEthernet));
+            OnPropertyChanged(nameof(SelectedWifi));
+            OnPropertyChanged(nameof(CombinedSpeedText));
+            OnPropertyChanged(nameof(CombinedUploadSpeedText));
+            OnPropertyChanged(nameof(EthernetQualityText));
+            OnPropertyChanged(nameof(WifiQualityText));
+        }
+        finally { _loadingSettings = false; }
+        if (logDiscovery)
+            Log($"Detected {EthernetLinks.Count} Ethernet and {WifiLinks.Count} Wi-Fi internet link(s)");
     }
 
     private void LoadPreviewAdapters()
@@ -286,10 +358,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             var elapsedSeconds = Math.Max(0.2, (now - _lastRateUpdateUtc).TotalSeconds);
             _lastRateUpdateUtc = now;
             NetworkDiscovery.UpdateRates(EthernetLinks.Concat(WifiLinks), elapsedSeconds);
+            RecordTrafficSample();
             OnPropertyChanged(nameof(ActiveConnections));
             OnPropertyChanged(nameof(CombinedSpeedText));
             OnPropertyChanged(nameof(CombinedUploadSpeedText));
             OnPropertyChanged(nameof(RouteHealthText));
+            OnPropertyChanged(nameof(EthernetQualityText));
+            OnPropertyChanged(nameof(WifiQualityText));
             if (now >= _nextProcessScanUtc)
             {
                 UpdateRunningProfiles();
@@ -322,6 +397,43 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         finally { _controllerGate.Release(); }
     }
 
+    private void RecordTrafficSample()
+    {
+        _trafficHistory.Enqueue(new TrafficSample(
+            (SelectedEthernet?.DownloadMbps ?? 0) + (SelectedEthernet?.UploadMbps ?? 0),
+            (SelectedWifi?.DownloadMbps ?? 0) + (SelectedWifi?.UploadMbps ?? 0)));
+        while (_trafficHistory.Count > 60) _trafficHistory.Dequeue();
+        OnPropertyChanged(nameof(EthernetGraphPoints));
+        OnPropertyChanged(nameof(WifiGraphPoints));
+    }
+
+    private void SeedPreviewTraffic()
+    {
+        for (var i = 0; i < 42; i++)
+        {
+            var ethernet = 72 + Math.Sin(i * 0.31) * 22 + (i % 9) * 2.1;
+            var wifi = 118 + Math.Cos(i * 0.23) * 35 + (i % 7) * 3.2;
+            _trafficHistory.Enqueue(new TrafficSample(Math.Max(0, ethernet), Math.Max(0, wifi)));
+        }
+        OnPropertyChanged(nameof(EthernetGraphPoints));
+        OnPropertyChanged(nameof(WifiGraphPoints));
+    }
+
+    private PointCollection BuildTrafficPoints(Func<TrafficSample, double> selector)
+    {
+        var samples = _trafficHistory.ToArray();
+        var points = new PointCollection();
+        if (samples.Length == 0) return points;
+        var maximum = Math.Max(1d, samples.Max(x => Math.Max(x.EthernetMbps, x.WifiMbps)));
+        for (var i = 0; i < samples.Length; i++)
+        {
+            var x = samples.Length == 1 ? 0 : i * 232d / (samples.Length - 1);
+            var y = 30d - Math.Clamp(selector(samples[i]) / maximum, 0d, 1d) * 28d;
+            points.Add(new System.Windows.Point(x, y));
+        }
+        return points;
+    }
+
     private async Task VerifyBoostHealthAsync()
     {
         if (!await _proxiFyre.IsServiceRunningAsync())
@@ -334,6 +446,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         UpdateActiveRouteStatus();
         UpdateTray();
         Log("Filter service recovered");
+        _tray?.Notify("DualLink recovered", "The application filter restarted and routing is active again.");
     }
 
     private void UpdateRunningProfiles()
@@ -352,8 +465,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private async Task StartBoostAsync(IReadOnlyCollection<AppProfile> selected)
     {
-        if (SelectedEthernet is null || SelectedWifi is null)
-            throw new InvalidOperationException("Select one Ethernet and one Wi-Fi link.");
+        var routes = BuildRouteDefinitions();
         var prerequisite = await _proxiFyre.CheckPrerequisitesAsync();
         if (!prerequisite.Installed)
         {
@@ -364,11 +476,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
 
         StatusText = "Starting…";
-        await _balancer.StartAsync(new[]
-        {
-            new RouteDefinition(SelectedEthernet.Address, SelectedEthernet.Weight, true, "Ethernet"),
-            new RouteDefinition(SelectedWifi.Address, SelectedWifi.Weight, false, "Wi-Fi")
-        }, SelectedRoutingModeOption?.Mode ?? RoutingMode.Smart);
+        await _balancer.StartAsync(routes, SelectedRoutingModeOption?.Mode ?? RoutingMode.Smart);
         try
         {
             var processMatchers = selected.SelectMany(x => x.ProcessMatchers).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
@@ -426,8 +534,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             _settings.EthernetWeight = SelectedEthernet?.Weight ?? 2;
             _settings.WifiWeight = SelectedWifi?.Weight ?? 5;
             _settings.CloseToTray = CloseToTray;
-            _settings.DownloadLimitMbps = SelectedBandwidthOption?.Mbps ?? 0;
+            _settings.BandwidthLimitMbps = SelectedBandwidthOption?.Mbps ?? 0;
+            _settings.DownloadLimitMbps = 0;
             _settings.RoutingMode = SelectedRoutingModeOption?.Mode ?? RoutingMode.Smart;
+            _settings.UpdateChannel = SelectedUpdateChannelOption?.Channel ?? UpdateChannel.Stable;
             _settings.SelectedProfiles = Profiles.Where(x => x.IsSelected).Select(x => x.Name).ToList();
             _settings.CustomProfiles = Profiles.Where(x => x.IsCustom).ToList();
             File.WriteAllText(_settingsPath, JsonSerializer.Serialize(_settings, new JsonSerializerOptions { WriteIndented = true }));
@@ -461,7 +571,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             (SelectedEthernet?.DownloadMbps ?? 0) + (SelectedWifi?.DownloadMbps ?? 0),
             (SelectedEthernet?.UploadMbps ?? 0) + (SelectedWifi?.UploadMbps ?? 0),
             _balancer.ActiveConnections,
-            SelectedRoutingModeOption?.DisplayName ?? "Smart"));
+            SelectedRoutingModeOption?.DisplayName ?? "Smart",
+            RouteHealthText));
     }
 
     private void TitleBar_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
@@ -560,13 +671,87 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private void ApplyRouteMix()
     {
         SaveSettings();
-        if (!_balancer.IsRunning || SelectedEthernet is null || SelectedWifi is null) return;
-        _balancer.UpdateSources(new[]
-        {
-            new RouteDefinition(SelectedEthernet.Address, SelectedEthernet.Weight, true, "Ethernet"),
-            new RouteDefinition(SelectedWifi.Address, SelectedWifi.Weight, false, "Wi-Fi")
-        }, SelectedRoutingModeOption?.Mode ?? RoutingMode.Smart);
+        if (!_balancer.IsRunning) return;
+        _balancer.UpdateSources(BuildRouteDefinitions(), SelectedRoutingModeOption?.Mode ?? RoutingMode.Smart);
         UpdateActiveRouteStatus();
+    }
+
+    private RouteDefinition[] BuildRouteDefinitions()
+    {
+        var routes = new List<RouteDefinition>(2);
+        if (SelectedEthernet is { Weight: > 0 } ethernet)
+            routes.Add(new RouteDefinition(ethernet.Address, ethernet.Weight, true, "Ethernet"));
+        if (SelectedWifi is { Weight: > 0 } wifi)
+            routes.Add(new RouteDefinition(wifi.Address, wifi.Weight, false, "Wi-Fi"));
+        if (routes.Count == 0)
+            throw new InvalidOperationException("Keep at least one connected route enabled.");
+        return routes.ToArray();
+    }
+
+    private string GetQualityText(LinkInfo? link)
+    {
+        if (link is null) return "Disconnected";
+        var status = _balancer.RouteStatuses.FirstOrDefault(x => x.Address.Equals(link.Address, StringComparison.OrdinalIgnoreCase));
+        if (string.IsNullOrEmpty(status.Address)) return "Ready";
+        return status.ConnectLatencyMs is double latency
+            ? $"{status.QualityLabel} · {latency:0} ms"
+            : status.QualityLabel;
+    }
+
+    private void NetworkChanged(object? sender, EventArgs e)
+    {
+        if (_allowClose || _previewMode) return;
+        Dispatcher.BeginInvoke(() =>
+        {
+            _networkDebounceTimer.Stop();
+            _networkDebounceTimer.Start();
+        });
+    }
+
+    private void PowerModeChanged(object sender, PowerModeChangedEventArgs e)
+    {
+        if (e.Mode is PowerModes.Resume or PowerModes.StatusChange)
+            NetworkChanged(sender, e);
+    }
+
+    private async void NetworkDebounce_Tick(object? sender, EventArgs e)
+    {
+        _networkDebounceTimer.Stop();
+        if (!await _controllerGate.WaitAsync(0))
+        {
+            _networkDebounceTimer.Start();
+            return;
+        }
+        try
+        {
+            var previousAddresses = new[] { SelectedEthernet?.Address, SelectedWifi?.Address };
+            var previousCount = previousAddresses.Count(x => !string.IsNullOrWhiteSpace(x));
+            RefreshAdapters(logDiscovery: false);
+            var currentAddresses = new[] { SelectedEthernet?.Address, SelectedWifi?.Address };
+            if (previousAddresses.SequenceEqual(currentAddresses, StringComparer.OrdinalIgnoreCase)) return;
+
+            Log("Network changed; refreshed available connections");
+            var currentCount = currentAddresses.Count(x => !string.IsNullOrWhiteSpace(x));
+            if (currentCount == 0)
+                _tray?.Notify("Connections unavailable", "Ethernet and Wi-Fi are both offline. Normal routing will be restored.", System.Windows.Forms.ToolTipIcon.Warning);
+            else if (currentCount < previousCount)
+                _tray?.Notify("One connection was lost", "DualLink will keep new sessions on the remaining connection.", System.Windows.Forms.ToolTipIcon.Warning);
+            else if (currentCount > previousCount)
+                _tray?.Notify("Connection restored", "The recovered connection is available for new sessions.");
+            if (!_balancer.IsRunning) return;
+            try
+            {
+                _balancer.UpdateSources(BuildRouteDefinitions(), SelectedRoutingModeOption?.Mode ?? RoutingMode.Smart);
+                UpdateActiveRouteStatus();
+                Log("New sessions will use the refreshed connections");
+            }
+            catch (InvalidOperationException)
+            {
+                await StopBoostAsync("No selected internet connection is available");
+            }
+        }
+        catch (Exception ex) { Log($"Network refresh failed: {ex.Message}"); }
+        finally { _controllerGate.Release(); }
     }
 
     private void UpdateActiveRouteStatus()
@@ -582,6 +767,103 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         DetailsDrawer.Visibility = DetailsDrawer.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
     }
 
+    private void Activity_Click(object sender, RoutedEventArgs e)
+    {
+        var showActivity = ActivityPanel.Visibility != Visibility.Visible;
+        ActivityPanel.Visibility = showActivity ? Visibility.Visible : Visibility.Collapsed;
+        DiagnosticPanel.Visibility = showActivity ? Visibility.Collapsed : Visibility.Visible;
+        ActivityToggleButton.Content = showActivity ? "Results" : "Activity";
+    }
+
+    private async void RunDiagnostics_Click(object sender, RoutedEventArgs e)
+    {
+        _diagnosticsCts?.Cancel();
+        _diagnosticsCts?.Dispose();
+        _diagnosticsCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var token = _diagnosticsCts.Token;
+        Diagnostics.Clear();
+        DiagnosticsSummaryText = "Checking both connections…";
+        try
+        {
+            var prerequisite = await _proxiFyre.CheckPrerequisitesAsync();
+            Diagnostics.Add(new ConnectionCheckResult(
+                "Network filter",
+                prerequisite.Installed ? "The application filter is ready." : prerequisite.Message,
+                prerequisite.Installed ? DiagnosticState.Good : DiagnosticState.Problem));
+
+            var linksAreIndependent = SelectedEthernet is not null && SelectedWifi is not null &&
+                !SelectedEthernet.Id.Equals(SelectedWifi.Id, StringComparison.OrdinalIgnoreCase) &&
+                !SelectedEthernet.Address.Equals(SelectedWifi.Address, StringComparison.OrdinalIgnoreCase);
+            Diagnostics.Add(new ConnectionCheckResult(
+                "Connection mix",
+                linksAreIndependent ? "Ethernet and Wi-Fi use separate local routes." : "Two different connected routes are not currently available.",
+                linksAreIndependent ? DiagnosticState.Good : DiagnosticState.Notice));
+
+            var connectivity = await Task.WhenAll(
+                NetworkDiscovery.CheckConnectivityAsync(SelectedEthernet, token),
+                NetworkDiscovery.CheckConnectivityAsync(SelectedWifi, token),
+                NetworkDiscovery.CheckDnsAsync(token));
+            foreach (var check in connectivity) Diagnostics.Add(check);
+
+            if (_boosting)
+            {
+                Diagnostics.Add(new ConnectionCheckResult(
+                    "Active routing",
+                    ActiveConnections > 1
+                        ? $"{ActiveConnections} sessions can be distributed between the selected connections."
+                        : ActiveConnections == 1
+                            ? "Only one session is active, so it cannot be divided between both connections."
+                            : "No selected application is opening network sessions right now.",
+                    ActiveConnections > 1 ? DiagnosticState.Good : DiagnosticState.Notice));
+            }
+            else
+            {
+                Diagnostics.Add(new ConnectionCheckResult("Active routing", "Boost is idle; connection checks still work normally.", DiagnosticState.Notice));
+            }
+
+            var problems = Diagnostics.Count(x => x.State == DiagnosticState.Problem);
+            var notices = Diagnostics.Count(x => x.State == DiagnosticState.Notice);
+            DiagnosticsSummaryText = problems > 0
+                ? $"{problems} issue{(problems == 1 ? string.Empty : "s")} need attention"
+                : notices > 0 ? "Connections work, with a few notes" : "Both connections are ready";
+        }
+        catch (OperationCanceledException)
+        {
+            DiagnosticsSummaryText = "The check was cancelled.";
+        }
+        catch (Exception ex)
+        {
+            DiagnosticsSummaryText = "The check could not finish.";
+            Diagnostics.Add(new ConnectionCheckResult("Diagnostics", ex.Message, DiagnosticState.Problem));
+        }
+    }
+
+    private async void CheckUpdates_Click(object sender, RoutedEventArgs e)
+    {
+        if (_availableUpdateUrl is not null)
+        {
+            Process.Start(new ProcessStartInfo { FileName = _availableUpdateUrl, UseShellExecute = true });
+            return;
+        }
+
+        UpdateCheckButton.IsEnabled = false;
+        UpdateStatusText = "Checking GitHub…";
+        try
+        {
+            var result = await UpdateChecker.CheckAsync(
+                SelectedUpdateChannelOption?.Channel ?? UpdateChannel.Stable,
+                CancellationToken.None);
+            UpdateStatusText = result.Message;
+            _availableUpdateUrl = result.IsAvailable ? result.PageUrl : null;
+            OnPropertyChanged(nameof(UpdateActionText));
+        }
+        catch
+        {
+            UpdateStatusText = "Could not reach GitHub. Try again later.";
+        }
+        finally { UpdateCheckButton.IsEnabled = true; }
+    }
+
     private void Settings_Click(object sender, RoutedEventArgs e)
     {
         DetailsDrawer.Visibility = Visibility.Collapsed;
@@ -593,7 +875,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public void ShowTrayPreview()
     {
         _tray ??= new TrayManager(() => { }, () => { }, () => { });
-        _tray.Update(new TraySnapshot(true, true, 395.1, 67.3, 27, "Smart"));
+        _tray.Update(new TraySnapshot(true, true, 395.1, 67.3, 27, "Smart", "Both connections healthy"));
         _tray.ShowMenuForPreview();
     }
 
@@ -696,6 +978,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (_allowClose) return;
         e.Cancel = true;
         _timer.Stop();
+        _networkDebounceTimer.Stop();
+        NetworkChange.NetworkAddressChanged -= NetworkChanged;
+        NetworkChange.NetworkAvailabilityChanged -= NetworkChanged;
+        SystemEvents.PowerModeChanged -= PowerModeChanged;
+        _diagnosticsCts?.Cancel();
+        _diagnosticsCts?.Dispose();
         await _controllerGate.WaitAsync();
         try
         {
@@ -714,4 +1002,6 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
     private void OnPropertyChanged([CallerMemberName] string? name = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+
+    private readonly record struct TrafficSample(double EthernetMbps, double WifiMbps);
 }

@@ -66,6 +66,63 @@ public static class NetworkDiscovery
         }
     }
 
+    public static async Task<ConnectionCheckResult> CheckConnectivityAsync(LinkInfo? link, CancellationToken token)
+    {
+        if (link is null)
+            return new ConnectionCheckResult("Connection missing", "Choose a connected network adapter.", DiagnosticState.Problem);
+
+        var nic = NetworkInterface.GetAllNetworkInterfaces()
+            .FirstOrDefault(x => x.Id.Equals(link.Id, StringComparison.OrdinalIgnoreCase));
+        if (nic is null || nic.OperationalStatus != OperationalStatus.Up)
+            return new ConnectionCheckResult(link.Kind, $"{link.DisplayName} is disconnected.", DiagnosticState.Problem);
+
+        if (!IPAddress.TryParse(link.Address, out var source))
+            return new ConnectionCheckResult(link.Kind, "The adapter does not have a usable IPv4 address.", DiagnosticState.Problem);
+
+        var stillOwnsAddress = nic.GetIPProperties().UnicastAddresses
+            .Any(x => x.Address.Equals(source));
+        if (!stillOwnsAddress)
+            return new ConnectionCheckResult(link.Kind, "The adapter address changed. DualLink will refresh it automatically.", DiagnosticState.Notice);
+
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+            timeout.CancelAfter(TimeSpan.FromSeconds(3));
+            using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            socket.Bind(new IPEndPoint(source, 0));
+            var started = Stopwatch.GetTimestamp();
+            await socket.ConnectAsync(new IPEndPoint(IPAddress.Parse("1.1.1.1"), 443), timeout.Token);
+            var latency = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            var state = latency <= 180 ? DiagnosticState.Good : DiagnosticState.Notice;
+            return new ConnectionCheckResult(link.Kind, $"{link.DisplayName} reached the internet in {latency:0} ms.", state);
+        }
+        catch (OperationCanceledException) when (!token.IsCancellationRequested)
+        {
+            return new ConnectionCheckResult(link.Kind, $"{link.DisplayName} did not reach the internet within 3 seconds.", DiagnosticState.Problem);
+        }
+        catch (Exception ex) when (ex is SocketException or InvalidOperationException)
+        {
+            return new ConnectionCheckResult(link.Kind, $"{link.DisplayName} cannot currently reach the internet.", DiagnosticState.Problem);
+        }
+    }
+
+    public static async Task<ConnectionCheckResult> CheckDnsAsync(CancellationToken token)
+    {
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+            timeout.CancelAfter(TimeSpan.FromSeconds(3));
+            var addresses = await Dns.GetHostAddressesAsync("example.com", timeout.Token);
+            return addresses.Length > 0
+                ? new ConnectionCheckResult("Name lookup", "Web addresses are resolving normally.", DiagnosticState.Good)
+                : new ConnectionCheckResult("Name lookup", "No address was returned.", DiagnosticState.Problem);
+        }
+        catch
+        {
+            return new ConnectionCheckResult("Name lookup", "DNS is not responding right now.", DiagnosticState.Problem);
+        }
+    }
+
     private static Dictionary<string, string> FindConnectedWifiNetworks()
     {
         var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);

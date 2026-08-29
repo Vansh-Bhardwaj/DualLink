@@ -26,9 +26,19 @@ public readonly record struct RouteStatus(
     int Weight,
     int ActiveConnections,
     int ConsecutiveFailures,
-    DateTime UnhealthyUntilUtc)
+    DateTime UnhealthyUntilUtc,
+    double? ConnectLatencyMs,
+    DateTime? LastSuccessUtc)
 {
     public bool IsHealthy => DateTime.UtcNow >= UnhealthyUntilUtc;
+    public string QualityLabel => !IsHealthy ? "Unavailable" : ConnectLatencyMs switch
+    {
+        null => "Ready",
+        <= 40 => "Excellent",
+        <= 90 => "Good",
+        <= 180 => "Fair",
+        _ => "Slow"
+    };
 }
 
 public sealed record ProxyCredentials(string Username, string Password)

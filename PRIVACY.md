@@ -21,6 +21,8 @@ When armed, DualLink redirects TCP connections created by applications the user 
 
 Normal destination services, launchers, browsers, internet providers, hotspot providers, and operating-system components may process network data under their own policies. DualLink does not change those third-party practices.
 
+DualLink makes no background analytics or update requests. When the user explicitly selects **Check now**, it sends a standard HTTPS request to GitHub's public API containing the normal network metadata of a web request and the installed DualLink version as its user agent. When the user explicitly selects **Check connections**, DualLink attempts a short TCP connection from each selected adapter to `1.1.1.1:443` and resolves `example.com` to verify basic internet and DNS reachability. No application payload, settings, activity history, or credentials are included.
+
 ## Administrative access
 
 DualLink requests administrator privileges because it controls a local Windows service and writes its local filter configuration. It does not alter Windows privacy settings or collect credentials.

@@ -5,6 +5,7 @@ using System.IO;
 using System.Buffers;
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
+using System.Diagnostics;
 
 namespace DualLink;
 
@@ -20,7 +21,7 @@ public sealed class Socks5Balancer : IAsyncDisposable
     private long _nextSource = -1;
     private long _nextClient;
     private int _activeConnections;
-    private readonly TransferRateLimiter _downloadLimiter = new();
+    private readonly TransferRateLimiter _bandwidthLimiter = new();
     private readonly ConcurrentDictionary<long, Task> _clientTasks = new();
     private readonly SemaphoreSlim _connectionGate = new(512, 512);
     private RoutingMode _mode = RoutingMode.Smart;
@@ -34,7 +35,7 @@ public sealed class Socks5Balancer : IAsyncDisposable
 
     public int ActiveConnections => Volatile.Read(ref _activeConnections);
     public bool IsRunning => _listener is not null;
-    public int DownloadLimitMbps => _downloadLimiter.MegabitsPerSecond;
+    public int BandwidthLimitMbps => _bandwidthLimiter.MegabitsPerSecond;
     public int BoundPort => (_listener?.LocalEndpoint as IPEndPoint)?.Port ?? 0;
     public RoutingMode Mode => _mode;
     public IReadOnlyList<RouteStatus> RouteStatuses
@@ -48,10 +49,10 @@ public sealed class Socks5Balancer : IAsyncDisposable
         }
     }
 
-    public void SetDownloadLimit(int megabitsPerSecond)
+    public void SetBandwidthLimit(int megabitsPerSecond)
     {
-        _downloadLimiter.SetLimit(megabitsPerSecond);
-        _log(megabitsPerSecond <= 0 ? "Download limit disabled" : $"Download limit set to {megabitsPerSecond} Mbps");
+        _bandwidthLimiter.SetLimit(megabitsPerSecond);
+        _log(megabitsPerSecond <= 0 ? "Bandwidth limit disabled" : $"Combined bandwidth limit set to {megabitsPerSecond} Mbps");
     }
 
     public Task StartAsync(IEnumerable<(string Address, int Weight)> sources) =>
@@ -198,8 +199,8 @@ public sealed class Socks5Balancer : IAsyncDisposable
                 _log($"{source} → {host}:{port}");
 
                 using var outboundStream = new NetworkStream(outbound, ownsSocket: false);
-                var upload = inbound.CopyToAsync(outboundStream, token);
-                var download = CopyDownloadAsync(outboundStream, inbound, token);
+                var upload = CopyThrottledAsync(inbound, outboundStream, token);
+                var download = CopyThrottledAsync(outboundStream, inbound, token);
                 await Task.WhenAny(upload, download);
             }
             catch (OperationCanceledException) { }
@@ -218,7 +219,7 @@ public sealed class Socks5Balancer : IAsyncDisposable
         }
     }
 
-    private async Task CopyDownloadAsync(Stream source, Stream destination, CancellationToken token)
+    private async Task CopyThrottledAsync(Stream source, Stream destination, CancellationToken token)
     {
         var buffer = ArrayPool<byte>.Shared.Rent(64 * 1024);
         try
@@ -227,7 +228,7 @@ public sealed class Socks5Balancer : IAsyncDisposable
             {
                 var count = await source.ReadAsync(buffer.AsMemory(0, buffer.Length), token);
                 if (count == 0) break;
-                await _downloadLimiter.ThrottleAsync(count, token);
+                await _bandwidthLimiter.ThrottleAsync(count, token);
                 await destination.WriteAsync(buffer.AsMemory(0, count), token);
             }
         }
@@ -249,13 +250,14 @@ public sealed class Socks5Balancer : IAsyncDisposable
             var source = route.Source;
             route.Reserve();
             var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+            var connectStarted = Stopwatch.GetTimestamp();
             try
             {
                 socket.Bind(new IPEndPoint(source, 0));
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
                 timeout.CancelAfter(TimeSpan.FromSeconds(12));
                 await socket.ConnectAsync(new IPEndPoint(destination, port), timeout.Token);
-                route.MarkSuccess();
+                route.MarkSuccess(Stopwatch.GetElapsedTime(connectStarted).TotalMilliseconds);
                 return (socket, source, new RouteLease(route));
             }
             catch (Exception ex)
@@ -287,7 +289,7 @@ public sealed class Socks5Balancer : IAsyncDisposable
                     .ToList(),
                 RoutingMode.Balanced => RotateWeighted(pool),
                 _ => Rotate(pool)
-                    .OrderBy(x => (double)x.ActiveConnections / Math.Max(1, x.Weight))
+                    .OrderBy(x => x.SmartScore)
                     .ThenBy(x => x.Failures)
                     .Concat(_routes.Except(pool).OrderBy(x => x.UnhealthyUntilUtc))
                     .ToList()
@@ -364,6 +366,9 @@ public sealed class Socks5Balancer : IAsyncDisposable
         private int _activeConnections;
         private int _failures;
         private long _unhealthyUntilTicks;
+        private readonly object _qualityGate = new();
+        private double? _connectLatencyMs;
+        private DateTime? _lastSuccessUtc;
 
         public RouteState(RouteDefinition definition) => Update(definition);
         public string Address { get; private set; } = string.Empty;
@@ -374,6 +379,17 @@ public sealed class Socks5Balancer : IAsyncDisposable
         public int ActiveConnections => Volatile.Read(ref _activeConnections);
         public int Failures => Volatile.Read(ref _failures);
         public DateTime UnhealthyUntilUtc => new(Volatile.Read(ref _unhealthyUntilTicks), DateTimeKind.Utc);
+        public double SmartScore
+        {
+            get
+            {
+                lock (_qualityGate)
+                {
+                    var latencyPenalty = (_connectLatencyMs ?? 60d) / 250d;
+                    return (double)ActiveConnections / Math.Max(1, Weight) + latencyPenalty + Failures * 2d;
+                }
+            }
+        }
 
         public void Update(RouteDefinition definition)
         {
@@ -386,10 +402,17 @@ public sealed class Socks5Balancer : IAsyncDisposable
 
         public void Reserve() => Interlocked.Increment(ref _activeConnections);
         public void Release() => Interlocked.Decrement(ref _activeConnections);
-        public void MarkSuccess()
+        public void MarkSuccess(double connectLatencyMs)
         {
             Interlocked.Exchange(ref _failures, 0);
             Interlocked.Exchange(ref _unhealthyUntilTicks, DateTime.MinValue.Ticks);
+            lock (_qualityGate)
+            {
+                _connectLatencyMs = _connectLatencyMs is null
+                    ? connectLatencyMs
+                    : (_connectLatencyMs.Value * 0.75d) + (connectLatencyMs * 0.25d);
+                _lastSuccessUtc = DateTime.UtcNow;
+            }
         }
 
         public void MarkFailure()
@@ -399,7 +422,11 @@ public sealed class Socks5Balancer : IAsyncDisposable
             Interlocked.Exchange(ref _unhealthyUntilTicks, DateTime.UtcNow.AddSeconds(seconds).Ticks);
         }
 
-        public RouteStatus Snapshot() => new(Address, Name, Weight, ActiveConnections, Failures, UnhealthyUntilUtc);
+        public RouteStatus Snapshot()
+        {
+            lock (_qualityGate)
+                return new RouteStatus(Address, Name, Weight, ActiveConnections, Failures, UnhealthyUntilUtc, _connectLatencyMs, _lastSuccessUtc);
+        }
     }
 
     private sealed class RouteLease(RouteState route) : IDisposable

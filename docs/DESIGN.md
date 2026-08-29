@@ -40,7 +40,7 @@ The left utility pane remains 292 pixels wide. The application list receives all
 - **Link row:** adapter selector, speed, small proportional weight stepper, and an Only command.
 - **Application row:** colored identity mark, name, description, running state, and a switch at the trailing edge.
 - **Boost control:** compact two-state button. Red is reserved for Restore while active.
-- **Inspector:** right-edge sheet for diagnostics or settings, with grouped rows and logs.
+- **Inspector:** right-edge sheet for plain-language diagnostics or settings. Technical activity is hidden behind an explicit secondary control.
 
 ## State requirements
 
@@ -59,4 +59,5 @@ The left utility pane remains 292 pixels wide. The application list receives all
 - Every interactive control has hover, pressed, disabled, and keyboard-focus feedback.
 - No functional information relies on color alone.
 - Details and settings remain hidden until requested.
+- Diagnostic results lead with an outcome and action; IP addresses and technical activity are never the default surface.
 - Screenshot review must show a clear primary action and no repeated decorative container treatment.

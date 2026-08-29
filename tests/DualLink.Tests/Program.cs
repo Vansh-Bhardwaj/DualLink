@@ -32,6 +32,14 @@ for (var i = 0; i < 4; i++) await SendRequestAsync(proxy.BoundPort, serverPort, 
 if (!sources.Contains("127.0.0.1") || !sources.Contains("127.0.0.2"))
     throw new Exception("Weighted source rotation did not use both links: " + string.Join(", ", sources));
 
+var measuredRoutes = proxy.RouteStatuses;
+if (measuredRoutes.Any(x => x.ConnectLatencyMs is null or <= 0 || x.LastSuccessUtc is null))
+    throw new Exception("Successful routes did not retain connection-quality measurements.");
+proxy.SetBandwidthLimit(75);
+if (proxy.BandwidthLimitMbps != 75)
+    throw new Exception("Combined bandwidth limit was not applied live.");
+proxy.SetBandwidthLimit(0);
+
 proxy.UpdateSources(new[] { ("127.0.0.1", 0), ("127.0.0.2", 1) });
 for (var i = 0; i < 2; i++) await SendRequestAsync(proxy.BoundPort, serverPort, cts.Token, credentials);
 
@@ -43,6 +51,7 @@ if (sources.TakeLast(2).Any(x => x != "127.0.0.2"))
     throw new Exception("Zero-weight route still received new connections: " + string.Join(", ", sources));
 
 Console.WriteLine("PASS: dual-link rotation and live zero-weight switching: " + string.Join(", ", sources));
+Console.WriteLine("PASS: successful routes expose latency quality and live combined bandwidth state");
 
 var authServer = new TcpListener(IPAddress.Loopback, 0);
 authServer.Start();
@@ -151,15 +160,15 @@ for (var i = 0; i < 4; i++)
     await limiter.ThrottleAsync(64 * 1024, cts.Token);
 throttleTimer.Stop();
 if (throttleTimer.Elapsed < TimeSpan.FromMilliseconds(650) || throttleTimer.Elapsed > TimeSpan.FromSeconds(3))
-    throw new Exception($"Download limiter timing was outside tolerance: {throttleTimer.Elapsed.TotalMilliseconds:0} ms.");
+    throw new Exception($"Combined bandwidth limiter timing was outside tolerance: {throttleTimer.Elapsed.TotalMilliseconds:0} ms.");
 limiter.SetLimit(0);
 var unlimitedTimer = System.Diagnostics.Stopwatch.StartNew();
 await limiter.ThrottleAsync(64 * 1024, cts.Token);
 unlimitedTimer.Stop();
 if (unlimitedTimer.Elapsed > TimeSpan.FromMilliseconds(100))
-    throw new Exception("Disabled download limiter still delayed traffic.");
+    throw new Exception("Disabled bandwidth limiter still delayed traffic.");
 
-Console.WriteLine($"PASS: live download limiter pacing: {throttleTimer.Elapsed.TotalMilliseconds:0} ms");
+Console.WriteLine($"PASS: shared upload and download limiter pacing: {throttleTimer.Elapsed.TotalMilliseconds:0} ms");
 
 var friendlyLink = new LinkInfo
 {

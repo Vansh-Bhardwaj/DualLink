@@ -110,6 +110,14 @@
                   <TextBlock Text="Upload" Foreground="{StaticResource TertiaryBrush}" FontSize="10.5" />
                   <TextBlock Text="{Binding CombinedUploadSpeedText}" Foreground="{StaticResource SecondaryBrush}" FontSize="10.5" FontWeight="Medium" Margin="6,0,0,0" />
                 </StackPanel>
+                <Grid Width="232" Height="32" Margin="0,9,0,0" HorizontalAlignment="Left" ClipToBounds="True"
+                      ToolTip="Last minute of total traffic · Ethernet and Wi-Fi">
+                  <Line X1="0" Y1="30" X2="232" Y2="30" Stroke="{StaticResource DividerBrush}" StrokeThickness="1" />
+                  <Polyline Points="{Binding EthernetGraphPoints}" Stroke="{StaticResource EthernetBrush}" StrokeThickness="1.5"
+                            StrokeLineJoin="Round" SnapsToDevicePixels="True" />
+                  <Polyline Points="{Binding WifiGraphPoints}" Stroke="{StaticResource WifiBrush}" StrokeThickness="1.5"
+                            StrokeLineJoin="Round" SnapsToDevicePixels="True" />
+                </Grid>
               </StackPanel>
               <Button HorizontalAlignment="Right" VerticalAlignment="Top" Style="{StaticResource IconButton}"
                       ToolTip="Refresh network adapters" Click="RefreshAdapters_Click">
@@ -194,8 +202,8 @@
             <Grid Grid.Row="10">
               <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="112" /></Grid.ColumnDefinitions>
               <StackPanel>
-                <TextBlock Text="Download speed limit" FontWeight="Medium" />
-                <TextBlock Text="Leave bandwidth for video, calls, or browsing" Style="{StaticResource CaptionText}" Margin="0,2,12,0" TextWrapping="Wrap" />
+                <TextBlock Text="Bandwidth limit" FontWeight="Medium" />
+                <TextBlock Text="Caps total download and upload traffic" Style="{StaticResource CaptionText}" Margin="0,2,12,0" TextWrapping="Wrap" />
               </StackPanel>
               <ComboBox Grid.Column="1" ItemsSource="{Binding BandwidthOptions}" SelectedItem="{Binding SelectedBandwidthOption, Mode=TwoWay}"
                         Height="32" VerticalAlignment="Center" />
@@ -302,22 +310,53 @@
               <TextBlock Text="Network filter" Foreground="{StaticResource SecondaryBrush}" />
               <TextBlock Text="{Binding PrerequisiteText}" HorizontalAlignment="Right" FontWeight="SemiBold" />
               <TextBlock Grid.Row="1" Text="Ethernet" Foreground="{StaticResource SecondaryBrush}" Margin="0,10,0,0" />
-              <TextBlock Grid.Row="1" Text="{Binding SelectedEthernet.DiagnosticName}" HorizontalAlignment="Right" FontSize="10" Margin="0,10,0,0" />
+              <TextBlock Grid.Row="1" Text="{Binding EthernetQualityText}" HorizontalAlignment="Right" FontSize="10" Margin="0,10,0,0"
+                         ToolTip="{Binding SelectedEthernet.DiagnosticName}" />
               <TextBlock Grid.Row="2" Text="Wi-Fi" Foreground="{StaticResource SecondaryBrush}" Margin="0,10,0,0" />
-              <TextBlock Grid.Row="2" Text="{Binding SelectedWifi.DiagnosticName}" HorizontalAlignment="Right" FontSize="10" Margin="0,10,0,0" />
+              <TextBlock Grid.Row="2" Text="{Binding WifiQualityText}" HorizontalAlignment="Right" FontSize="10" Margin="0,10,0,0"
+                         ToolTip="{Binding SelectedWifi.DiagnosticName}" />
               <TextBlock Grid.Row="3" Text="Recovery" Foreground="{StaticResource SecondaryBrush}" Margin="0,10,0,0" />
               <TextBlock Grid.Row="3" Text="Watching" HorizontalAlignment="Right" Foreground="{StaticResource SuccessBrush}" Margin="0,10,0,0" />
               <TextBlock Grid.Row="4" Text="Route health" Foreground="{StaticResource SecondaryBrush}" Margin="0,10,0,0" />
               <TextBlock Grid.Row="4" Text="{Binding RouteHealthText}" HorizontalAlignment="Right" FontSize="10" Margin="0,10,0,0" />
             </Grid>
-            <Border Grid.Row="4" Background="{StaticResource CanvasBrush}" CornerRadius="8" Padding="12">
-              <ScrollViewer VerticalScrollBarVisibility="Auto">
-                <ItemsControl ItemsSource="{Binding Activity}">
-                  <ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" Foreground="{StaticResource SecondaryBrush}" FontFamily="Cascadia Mono, Consolas" FontSize="10" TextWrapping="Wrap" Margin="0,0,0,8" /></DataTemplate></ItemsControl.ItemTemplate>
-                </ItemsControl>
-              </ScrollViewer>
-            </Border>
-            <Button Grid.Row="6" Content="Check network filter" Click="InstallFilter_Click" />
+            <Grid Grid.Row="4">
+              <Border x:Name="DiagnosticPanel" Background="{StaticResource CanvasBrush}" CornerRadius="8" Padding="14">
+                <Grid>
+                  <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="12" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                  <TextBlock Text="{Binding DiagnosticsSummaryText}" FontWeight="Medium" TextWrapping="Wrap" />
+                  <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding Diagnostics}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                          <Grid Margin="0,0,0,14">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="8" /><ColumnDefinition /></Grid.ColumnDefinitions>
+                            <Ellipse Width="6" Height="6" Fill="{Binding Accent}" VerticalAlignment="Top" Margin="0,5,0,0" />
+                            <StackPanel Grid.Column="1">
+                              <TextBlock Text="{Binding Title}" FontWeight="Medium" />
+                              <TextBlock Text="{Binding Message}" Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,3,0,0" />
+                            </StackPanel>
+                          </Grid>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </ScrollViewer>
+                </Grid>
+              </Border>
+              <Border x:Name="ActivityPanel" Background="{StaticResource CanvasBrush}" CornerRadius="8" Padding="12" Visibility="Collapsed">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                  <ItemsControl ItemsSource="{Binding Activity}">
+                    <ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" Foreground="{StaticResource SecondaryBrush}" FontFamily="Cascadia Mono, Consolas" FontSize="10" TextWrapping="Wrap" Margin="0,0,0,8" /></DataTemplate></ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </ScrollViewer>
+              </Border>
+            </Grid>
+            <Grid Grid.Row="6">
+              <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+              <Button Content="Check connections" Click="RunDiagnostics_Click" />
+              <Button Grid.Column="1" x:Name="ActivityToggleButton" Content="Activity" Style="{StaticResource QuietButton}"
+                      Margin="8,0,0,0" Click="Activity_Click" />
+            </Grid>
           </Grid>
         </Border>
 
@@ -325,7 +364,11 @@
                 Background="#292A30" BorderBrush="#50515B" BorderThickness="1,0,0,0"
                 Padding="23" Visibility="Collapsed" Panel.ZIndex="20">
           <Grid>
-            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="28" /><RowDefinition Height="Auto" /><RowDefinition Height="18" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto" /><RowDefinition Height="28" /><RowDefinition Height="Auto" />
+              <RowDefinition Height="22" /><RowDefinition Height="Auto" /><RowDefinition Height="22" />
+              <RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
             <Grid>
               <StackPanel><TextBlock Text="Settings" Style="{StaticResource SectionTitle}" /><TextBlock Text="App behavior" Style="{StaticResource CaptionText}" Margin="0,4,0,0" /></StackPanel>
               <Button Content="×" HorizontalAlignment="Right" VerticalAlignment="Top" Style="{StaticResource IconButton}" Click="CloseDrawer_Click" />
@@ -338,10 +381,24 @@
               </StackPanel>
               <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding CloseToTray, Mode=TwoWay}" VerticalAlignment="Center" />
             </Grid>
-            <Border Grid.Row="4" BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Padding="0,16,0,0">
+            <Grid Grid.Row="4">
+              <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="8" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+              <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="112" /></Grid.ColumnDefinitions>
+                <StackPanel>
+                  <TextBlock Text="Update channel" FontWeight="SemiBold" />
+                  <TextBlock Text="{Binding UpdateStatusText}" Style="{StaticResource CaptionText}" Margin="0,4,16,0" TextWrapping="Wrap" />
+                </StackPanel>
+                <ComboBox Grid.Column="1" ItemsSource="{Binding UpdateChannelOptions}" SelectedItem="{Binding SelectedUpdateChannelOption, Mode=TwoWay}"
+                          Height="32" VerticalAlignment="Top" />
+              </Grid>
+              <Button Grid.Row="2" x:Name="UpdateCheckButton" Content="{Binding UpdateActionText}" HorizontalAlignment="Left"
+                      Style="{StaticResource QuietButton}" Padding="0,5" Click="CheckUpdates_Click" />
+            </Grid>
+            <Border Grid.Row="6" BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Padding="0,16,0,0">
               <Grid><TextBlock Text="Build" Foreground="{StaticResource SecondaryBrush}" /><TextBlock Text="{Binding VersionText}" HorizontalAlignment="Right" /></Grid>
             </Border>
-            <TextBlock Grid.Row="6" Text="Exit from the tray menu to restore normal routing and stop DualLink."
+            <TextBlock Grid.Row="8" Text="Updates never install silently. Exit from the tray menu to restore normal routing and stop DualLink."
                        Style="{StaticResource CaptionText}" TextWrapping="Wrap" />
           </Grid>
         </Border>

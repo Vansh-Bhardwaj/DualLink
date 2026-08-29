@@ -2,6 +2,18 @@
 
 All notable DualLink changes are recorded here. Versions follow semantic versioning.
 
+## 2.3.0-dev.3 - 2026-08-29
+
+- Replaced the download-only limiter with one combined bandwidth limit shared by upload and download traffic.
+- Added smoothed real-session connection latency and quality labels to route status and Smart routing decisions.
+- Added plain-language checks for each selected connection, DNS, route independence, the application filter, and active session distribution.
+- Added automatic adapter refresh after cable, hotspot, address, sleep, and wake network changes.
+- Kept routing alive on one available connection and automatically reintroduced a recovered route for new sessions.
+- Added restrained tray notifications for connection loss, recovery, and filter-service recovery.
+- Hid technical activity behind an explicit control while keeping diagnostic results readable by default.
+- Added a compact one-minute Ethernet and Wi-Fi traffic history without additional network probes.
+- Added manual Stable and Preview update checks; updates never download or install silently.
+
 ## 2.3.0-dev.2 - 2026-08-29
 
 - Added Smart, Balanced, and Backup connection behaviors with live switching.
