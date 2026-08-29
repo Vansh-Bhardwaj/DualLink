@@ -19,6 +19,7 @@ All notable DualLink changes are recorded here. Versions follow semantic version
 - Cancelled and drained the opposite relay as soon as either side of a proxied connection closes, preventing idle transfer tasks and rented buffers from lingering.
 - Made the tray quality summary report unstable, fair, and slow routes instead of describing every available route as healthy.
 - Hardened the emergency watchdog so it rejects corrupted or redirected recovery paths before touching the filter service or configuration files.
+- Stopped destination refusals and app shutdown cancellation from lowering a connection's reliability or falsely quarantining a healthy route.
 
 ## 2.3.0-dev.2 - 2026-08-29
 

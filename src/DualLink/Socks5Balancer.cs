@@ -295,11 +295,33 @@ public sealed class Socks5Balancer : IAsyncDisposable
                 last = ex;
                 socket.Dispose();
                 route.Release();
-                route.MarkFailure();
-                _log($"{route.Name} is unavailable; trying another link");
+                token.ThrowIfCancellationRequested();
+                if (IsRouteFailure(ex))
+                {
+                    route.MarkFailure();
+                    _log($"{route.Name} is unavailable; trying another link");
+                }
+                else
+                {
+                    _log($"The destination rejected {route.Name}; trying another link");
+                }
             }
         }
         throw new IOException("No selected link could reach the destination.", last);
+    }
+
+    private static bool IsRouteFailure(Exception exception)
+    {
+        if (exception is OperationCanceledException) return true;
+        if (exception is InvalidOperationException) return true;
+        if (exception is not SocketException socket) return false;
+        return socket.SocketErrorCode is
+            SocketError.NetworkDown or
+            SocketError.NetworkUnreachable or
+            SocketError.HostDown or
+            SocketError.HostUnreachable or
+            SocketError.TimedOut or
+            SocketError.AddressNotAvailable;
     }
 
     private List<RouteState> SelectCandidates()
