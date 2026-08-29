@@ -20,7 +20,7 @@ jobs:
       - uses: github/codeql-action/init@v3
         with:
           languages: csharp
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
       - run: dotnet build src/DualLink/DualLink.csproj -c Release
