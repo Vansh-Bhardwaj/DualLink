@@ -16,6 +16,9 @@ All notable DualLink changes are recorded here. Versions follow semantic version
 - Made the traffic history time-based while minimized and made settings updates crash-safe through same-directory atomic replacement.
 - Preserved temporarily disconnected adapter choices and route weights so automatic recovery cannot be undone by another settings change.
 - Added smoothed per-route connection reliability so Smart routing remembers intermittent failures after a short quarantine expires.
+- Cancelled and drained the opposite relay as soon as either side of a proxied connection closes, preventing idle transfer tasks and rented buffers from lingering.
+- Made the tray quality summary report unstable, fair, and slow routes instead of describing every available route as healthy.
+- Hardened the emergency watchdog so it rejects corrupted or redirected recovery paths before touching the filter service or configuration files.
 
 ## 2.3.0-dev.2 - 2026-08-29
 

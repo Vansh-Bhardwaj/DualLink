@@ -230,10 +230,20 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         get
         {
             if (!_balancer.IsRunning) return "Idle";
-            var unavailable = _balancer.RouteStatuses.Where(x => !x.IsHealthy).Select(x => x.Name).ToArray();
-            return unavailable.Length == 0
-                ? $"{SelectedRoutingModeOption?.DisplayName ?? "Smart"} · healthy"
-                : $"Using backup · {string.Join(", ", unavailable)} unavailable";
+            var statuses = _balancer.RouteStatuses;
+            var unavailable = statuses.Where(x => !x.IsHealthy).Select(x => x.Name).ToArray();
+            if (unavailable.Length > 0)
+                return $"Using backup · {string.Join(", ", unavailable)} unavailable";
+
+            var degraded = statuses
+                .Where(x => x.QualityLabel is "Unstable" or "Fair" or "Slow")
+                .Select(x => x.QualityLabel == "Unstable"
+                    ? $"{x.Name} unstable ({x.ReliabilityPercent}%)"
+                    : $"{x.Name} {x.QualityLabel.ToLowerInvariant()}")
+                .ToArray();
+            return degraded.Length > 0
+                ? string.Join(" · ", degraded)
+                : $"{SelectedRoutingModeOption?.DisplayName ?? "Smart"} · healthy";
         }
     }
     public string VersionText => $"Version {UpdateChecker.CurrentVersion}";

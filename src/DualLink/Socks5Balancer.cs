@@ -199,9 +199,7 @@ public sealed class Socks5Balancer : IAsyncDisposable
                 _log($"{source} → {host}:{port}");
 
                 using var outboundStream = new NetworkStream(outbound, ownsSocket: false);
-                var upload = CopyThrottledAsync(inbound, outboundStream, token);
-                var download = CopyThrottledAsync(outboundStream, inbound, token);
-                await Task.WhenAny(upload, download);
+                await RelayBidirectionallyAsync(inbound, outboundStream, token);
             }
             catch (OperationCanceledException) { }
             catch (Exception ex)
@@ -233,6 +231,38 @@ public sealed class Socks5Balancer : IAsyncDisposable
             }
         }
         finally { ArrayPool<byte>.Shared.Return(buffer); }
+    }
+
+    private async Task RelayBidirectionallyAsync(Stream inbound, Stream outbound, CancellationToken token)
+    {
+        using var relayCancellation = CancellationTokenSource.CreateLinkedTokenSource(token);
+        var upload = CopyThrottledAsync(inbound, outbound, relayCancellation.Token);
+        var download = CopyThrottledAsync(outbound, inbound, relayCancellation.Token);
+        var completed = await Task.WhenAny(upload, download);
+
+        Exception? relayFailure = null;
+        try
+        {
+            await completed;
+        }
+        catch (Exception ex)
+        {
+            relayFailure = ex;
+        }
+
+        relayCancellation.Cancel();
+        try
+        {
+            await Task.WhenAll(upload, download);
+        }
+        catch
+        {
+            // Cancellation or disposal is expected while the peer relay is unwound.
+            // If the first relay failed, that original exception is rethrown below.
+        }
+
+        if (relayFailure is not null)
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(relayFailure).Throw();
     }
 
     private async Task<(Socket Socket, IPAddress Source, RouteLease Lease)> ConnectBalancedAsync(string host, int port, CancellationToken token)
