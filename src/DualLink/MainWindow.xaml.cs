@@ -39,6 +39,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private bool _armed;
     private bool _boosting;
     private DateTime _nextHealthCheckUtc = DateTime.MinValue;
+    private DateTime _nextStartAttemptUtc = DateTime.MinValue;
+    private int _startFailureCount;
     private bool _allowClose;
     private bool _exitRequested;
     private bool _closeToTray = true;
@@ -383,16 +385,17 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
             var selected = Profiles.Where(x => x.IsSelected).ToList();
             var shouldBoost = _armed && selected.Count > 0 && (!AutoBoost || selected.Any(x => x.IsRunning));
-            if (shouldBoost && !_boosting) await StartBoostAsync(selected);
+            if (shouldBoost && !_boosting && now >= _nextStartAttemptUtc) await StartBoostAsync(selected);
             else if (!shouldBoost && _boosting) await StopBoostAsync("No selected target is running");
             else if (shouldBoost && _boosting && DateTime.UtcNow >= _nextHealthCheckUtc)
             {
                 _nextHealthCheckUtc = DateTime.UtcNow.AddSeconds(2);
                 await VerifyBoostHealthAsync();
             }
-            else if (_armed && AutoBoost && !_boosting)
+            else if (_armed && !_boosting)
             {
-                StatusText = "Waiting";
+                var retrySeconds = Math.Max(0, (int)Math.Ceiling((_nextStartAttemptUtc - now).TotalSeconds));
+                StatusText = shouldBoost && retrySeconds > 0 ? $"Retrying in {retrySeconds}s" : "Waiting";
                 StatusColor = new SolidColorBrush(Color.FromRgb(255, 184, 77));
                 UpdateTray();
             }
@@ -402,7 +405,18 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         catch (Exception ex)
         {
             Log($"Controller error: {ex.Message}");
-            await StopBoostAsync("Safety stop");
+            try
+            {
+                await StopBoostAsync("Safety stop");
+                if (_armed) ScheduleStartRetry();
+            }
+            catch (Exception restoreError)
+            {
+                Log($"Automatic restore needs attention: {restoreError.Message}");
+                StatusText = "Restore needs attention";
+                StatusColor = new SolidColorBrush(Color.FromRgb(240, 108, 123));
+                UpdateTray();
+            }
         }
         finally { _controllerGate.Release(); }
     }
@@ -499,6 +513,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             var processMatchers = selected.SelectMany(x => x.ProcessMatchers).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
             await _proxiFyre.StartAsync(processMatchers, _balancer.BoundPort, _proxyCredentials);
             _boosting = true;
+            _startFailureCount = 0;
+            _nextStartAttemptUtc = DateTime.MinValue;
             UpdateActiveRouteStatus();
             UpdateTray();
             Log($"Boost active for {string.Join(", ", selected.Select(x => x.Name))}");
@@ -649,7 +665,14 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         catch (Exception ex)
         {
             Log($"Target update failed: {ex.Message}");
-            await StopBoostAsync("Safety stop");
+            try { await StopBoostAsync("Safety stop"); }
+            catch (Exception restoreError)
+            {
+                Log($"Restore needs attention: {restoreError.Message}");
+                StatusText = "Restore needs attention";
+                StatusColor = new SolidColorBrush(Color.FromRgb(240, 108, 123));
+                UpdateTray();
+            }
         }
         finally { _controllerGate.Release(); }
     }
@@ -665,9 +688,24 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         try
         {
             _armed = !_armed;
+            if (_armed)
+            {
+                _startFailureCount = 0;
+                _nextStartAttemptUtc = DateTime.MinValue;
+            }
             UpdateButton();
             SaveSettings();
-            if (!_armed) await StopBoostAsync("Boost disabled by user");
+            if (!_armed)
+            {
+                try { await StopBoostAsync("Boost disabled by user"); }
+                catch (Exception ex)
+                {
+                    Log($"Restore needs attention: {ex.Message}");
+                    StatusText = "Restore needs attention";
+                    StatusColor = new SolidColorBrush(Color.FromRgb(240, 108, 123));
+                    UpdateTray();
+                }
+            }
             else Log("Auto-boost armed");
         }
         finally { _controllerGate.Release(); }
@@ -783,9 +821,23 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void UpdateActiveRouteStatus()
     {
-        StatusText = SelectedEthernet?.Weight == 0 ? "Wi-Fi only" : SelectedWifi?.Weight == 0 ? "Ethernet only" : "Boosting";
+        var ethernetEnabled = SelectedEthernet is { Weight: > 0 };
+        var wifiEnabled = SelectedWifi is { Weight: > 0 };
+        StatusText = ethernetEnabled && !wifiEnabled ? "Ethernet only" :
+            wifiEnabled && !ethernetEnabled ? "Wi-Fi only" : "Boosting";
         StatusColor = new SolidColorBrush(Color.FromRgb(85, 230, 165));
         OnPropertyChanged(nameof(RouteHealthText));
+    }
+
+    private void ScheduleStartRetry()
+    {
+        _startFailureCount = Math.Min(_startFailureCount + 1, 5);
+        var delaySeconds = Math.Min(30, 3 * (1 << (_startFailureCount - 1)));
+        _nextStartAttemptUtc = DateTime.UtcNow.AddSeconds(delaySeconds);
+        StatusText = $"Retrying in {delaySeconds}s";
+        StatusColor = new SolidColorBrush(Color.FromRgb(255, 184, 77));
+        Log($"Will retry in {delaySeconds} seconds");
+        UpdateTray();
     }
 
     private void Details_Click(object sender, RoutedEventArgs e)
@@ -1016,7 +1068,14 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             _armed = false;
             UpdateButton();
-            await StopBoostAsync("DualLink closed — normal routing restored");
+            try
+            {
+                await StopBoostAsync("DualLink closed — normal routing restored");
+            }
+            catch (Exception ex)
+            {
+                Log($"Foreground restore failed; watchdog will retry: {ex.Message}");
+            }
             SaveSettings();
             _tray?.Dispose();
             _tray = null;
