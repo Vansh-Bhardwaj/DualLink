@@ -709,6 +709,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (link is null) return "Disconnected";
         var status = _balancer.RouteStatuses.FirstOrDefault(x => x.Address.Equals(link.Address, StringComparison.OrdinalIgnoreCase));
         if (string.IsNullOrEmpty(status.Address)) return "Ready";
+        if (status.QualityLabel == "Unstable") return $"Unstable · {status.ReliabilityPercent}%";
         return status.ConnectLatencyMs is double latency
             ? $"{status.QualityLabel} · {latency:0} ms"
             : status.QualityLabel;

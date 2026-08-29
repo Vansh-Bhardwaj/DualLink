@@ -33,7 +33,7 @@ if (!sources.Contains("127.0.0.1") || !sources.Contains("127.0.0.2"))
     throw new Exception("Weighted source rotation did not use both links: " + string.Join(", ", sources));
 
 var measuredRoutes = proxy.RouteStatuses;
-if (measuredRoutes.Any(x => x.ConnectLatencyMs is null or <= 0 || x.LastSuccessUtc is null))
+if (measuredRoutes.Any(x => x.ConnectLatencyMs is null or <= 0 || x.LastSuccessUtc is null || x.ReliabilityPercent is < 1 or > 100))
     throw new Exception("Successful routes did not retain connection-quality measurements.");
 proxy.SetBandwidthLimit(75);
 if (proxy.BandwidthLimitMbps != 75)

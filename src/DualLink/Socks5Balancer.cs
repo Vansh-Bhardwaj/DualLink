@@ -369,6 +369,7 @@ public sealed class Socks5Balancer : IAsyncDisposable
         private readonly object _qualityGate = new();
         private double? _connectLatencyMs;
         private DateTime? _lastSuccessUtc;
+        private double _reliability = 1d;
 
         public RouteState(RouteDefinition definition) => Update(definition);
         public string Address { get; private set; } = string.Empty;
@@ -386,7 +387,8 @@ public sealed class Socks5Balancer : IAsyncDisposable
                 lock (_qualityGate)
                 {
                     var latencyPenalty = (_connectLatencyMs ?? 60d) / 250d;
-                    return (double)ActiveConnections / Math.Max(1, Weight) + latencyPenalty + Failures * 2d;
+                    var reliabilityPenalty = (1d - _reliability) * 4d;
+                    return (double)ActiveConnections / Math.Max(1, Weight) + latencyPenalty + reliabilityPenalty + Failures * 2d;
                 }
             }
         }
@@ -411,6 +413,7 @@ public sealed class Socks5Balancer : IAsyncDisposable
                 _connectLatencyMs = _connectLatencyMs is null
                     ? connectLatencyMs
                     : (_connectLatencyMs.Value * 0.75d) + (connectLatencyMs * 0.25d);
+                _reliability = (_reliability * 0.85d) + 0.15d;
                 _lastSuccessUtc = DateTime.UtcNow;
             }
         }
@@ -420,12 +423,14 @@ public sealed class Socks5Balancer : IAsyncDisposable
             var failures = Interlocked.Increment(ref _failures);
             var seconds = Math.Min(60, 3 * (1 << Math.Min(failures - 1, 4)));
             Interlocked.Exchange(ref _unhealthyUntilTicks, DateTime.UtcNow.AddSeconds(seconds).Ticks);
+            lock (_qualityGate)
+                _reliability *= 0.75d;
         }
 
         public RouteStatus Snapshot()
         {
             lock (_qualityGate)
-                return new RouteStatus(Address, Name, Weight, ActiveConnections, Failures, UnhealthyUntilUtc, _connectLatencyMs, _lastSuccessUtc);
+                return new RouteStatus(Address, Name, Weight, ActiveConnections, Failures, UnhealthyUntilUtc, _connectLatencyMs, _lastSuccessUtc, _reliability);
         }
     }
 

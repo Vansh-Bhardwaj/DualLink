@@ -28,11 +28,14 @@ public readonly record struct RouteStatus(
     int ConsecutiveFailures,
     DateTime UnhealthyUntilUtc,
     double? ConnectLatencyMs,
-    DateTime? LastSuccessUtc)
+    DateTime? LastSuccessUtc,
+    double Reliability)
 {
     public bool IsHealthy => DateTime.UtcNow >= UnhealthyUntilUtc;
+    public int ReliabilityPercent => (int)Math.Round(Math.Clamp(Reliability, 0d, 1d) * 100d);
     public string QualityLabel => !IsHealthy ? "Unavailable" : ConnectLatencyMs switch
     {
+        _ when Reliability < 0.85d => "Unstable",
         null => "Ready",
         <= 40 => "Excellent",
         <= 90 => "Good",
