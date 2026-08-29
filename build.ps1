@@ -1,5 +1,8 @@
 [CmdletBinding()]
-param([switch]$SkipInstaller)
+param(
+    [switch]$SkipInstaller,
+    [switch]$SkipTests
+)
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = $PSScriptRoot
@@ -16,8 +19,12 @@ dotnet restore $appProject --configfile (Join-Path $repoRoot 'NuGet.Config')
 if ($LASTEXITCODE -ne 0) { throw 'App restore failed.' }
 dotnet run --project (Join-Path $repoRoot 'tools\IconMaker\IconMaker.csproj') -c Release -- $iconPath $iconPreviewPath
 if ($LASTEXITCODE -ne 0) { throw 'Icon generation failed.' }
-dotnet run --project $testProject -c Release
-if ($LASTEXITCODE -ne 0) { throw 'Integration tests failed.' }
+if (-not $SkipTests) {
+    dotnet run --project $testProject -c Release
+    if ($LASTEXITCODE -ne 0) { throw 'Integration tests failed.' }
+} else {
+    Write-Warning 'Integration tests were skipped. This output is not eligible for a stable GitHub Release.'
+}
 dotnet publish $appProject -c Release -p:PublishProfile=win-x64 -p:Version=$version --output $publishDirectory
 if ($LASTEXITCODE -ne 0) { throw 'Self-contained publish failed.' }
 dotnet publish $watchdogProject -c Release --output $watchdogPublishDirectory

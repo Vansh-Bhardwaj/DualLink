@@ -40,3 +40,5 @@ If any gate is incomplete, use another commit and development tag. Do not create
 - `CHANGELOG.md`: one section for every development checkpoint or stable release.
 
 The `Tag policy` workflow rejects malformed tags and tags whose version does not match the repository metadata. It validates identity only; it never creates a Release.
+
+Local development installs may use `build.ps1 -SkipTests`, but the script marks that output as ineligible for a stable GitHub Release. Stable release builds must run the complete build without this switch.
