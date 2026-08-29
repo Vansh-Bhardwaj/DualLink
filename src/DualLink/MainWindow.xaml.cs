@@ -399,21 +399,25 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void RecordTrafficSample()
     {
+        var now = DateTime.UtcNow;
         _trafficHistory.Enqueue(new TrafficSample(
+            now,
             (SelectedEthernet?.DownloadMbps ?? 0) + (SelectedEthernet?.UploadMbps ?? 0),
             (SelectedWifi?.DownloadMbps ?? 0) + (SelectedWifi?.UploadMbps ?? 0)));
-        while (_trafficHistory.Count > 60) _trafficHistory.Dequeue();
+        while (_trafficHistory.TryPeek(out var oldest) && now - oldest.TimestampUtc > TimeSpan.FromMinutes(1))
+            _trafficHistory.Dequeue();
         OnPropertyChanged(nameof(EthernetGraphPoints));
         OnPropertyChanged(nameof(WifiGraphPoints));
     }
 
     private void SeedPreviewTraffic()
     {
+        var now = DateTime.UtcNow;
         for (var i = 0; i < 42; i++)
         {
             var ethernet = 72 + Math.Sin(i * 0.31) * 22 + (i % 9) * 2.1;
             var wifi = 118 + Math.Cos(i * 0.23) * 35 + (i % 7) * 3.2;
-            _trafficHistory.Enqueue(new TrafficSample(Math.Max(0, ethernet), Math.Max(0, wifi)));
+            _trafficHistory.Enqueue(new TrafficSample(now.AddSeconds(i - 41), Math.Max(0, ethernet), Math.Max(0, wifi)));
         }
         OnPropertyChanged(nameof(EthernetGraphPoints));
         OnPropertyChanged(nameof(WifiGraphPoints));
@@ -425,9 +429,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         var points = new PointCollection();
         if (samples.Length == 0) return points;
         var maximum = Math.Max(1d, samples.Max(x => Math.Max(x.EthernetMbps, x.WifiMbps)));
+        var first = samples[0].TimestampUtc;
+        var last = samples[^1].TimestampUtc;
+        var durationSeconds = Math.Max(1d, (last - first).TotalSeconds);
         for (var i = 0; i < samples.Length; i++)
         {
-            var x = samples.Length == 1 ? 0 : i * 232d / (samples.Length - 1);
+            var x = Math.Clamp((samples[i].TimestampUtc - first).TotalSeconds / durationSeconds, 0d, 1d) * 232d;
             var y = 30d - Math.Clamp(selector(samples[i]) / maximum, 0d, 1d) * 28d;
             points.Add(new System.Windows.Point(x, y));
         }
@@ -540,7 +547,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             _settings.UpdateChannel = SelectedUpdateChannelOption?.Channel ?? UpdateChannel.Stable;
             _settings.SelectedProfiles = Profiles.Where(x => x.IsSelected).Select(x => x.Name).ToList();
             _settings.CustomProfiles = Profiles.Where(x => x.IsCustom).ToList();
-            File.WriteAllText(_settingsPath, JsonSerializer.Serialize(_settings, new JsonSerializerOptions { WriteIndented = true }));
+            var serialized = JsonSerializer.Serialize(_settings, new JsonSerializerOptions { WriteIndented = true });
+            var temporaryPath = _settingsPath + ".new";
+            File.WriteAllText(temporaryPath, serialized);
+            File.Move(temporaryPath, _settingsPath, true);
         }
         catch { }
     }
@@ -1003,5 +1013,5 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private void OnPropertyChanged([CallerMemberName] string? name = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 
-    private readonly record struct TrafficSample(double EthernetMbps, double WifiMbps);
+    private readonly record struct TrafficSample(DateTime TimestampUtc, double EthernetMbps, double WifiMbps);
 }
