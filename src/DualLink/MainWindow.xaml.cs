@@ -536,10 +536,16 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             _settings.AutoBoost = AutoBoost;
             _settings.Armed = _armed;
-            _settings.EthernetId = SelectedEthernet?.Id;
-            _settings.WifiId = SelectedWifi?.Id;
-            _settings.EthernetWeight = SelectedEthernet?.Weight ?? 2;
-            _settings.WifiWeight = SelectedWifi?.Weight ?? 5;
+            if (SelectedEthernet is not null)
+            {
+                _settings.EthernetId = SelectedEthernet.Id;
+                _settings.EthernetWeight = SelectedEthernet.Weight;
+            }
+            if (SelectedWifi is not null)
+            {
+                _settings.WifiId = SelectedWifi.Id;
+                _settings.WifiWeight = SelectedWifi.Weight;
+            }
             _settings.CloseToTray = CloseToTray;
             _settings.BandwidthLimitMbps = SelectedBandwidthOption?.Mbps ?? 0;
             _settings.DownloadLimitMbps = 0;

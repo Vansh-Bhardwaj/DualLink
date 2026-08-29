@@ -14,6 +14,7 @@ All notable DualLink changes are recorded here. Versions follow semantic version
 - Added a compact one-minute Ethernet and Wi-Fi traffic history without additional network probes.
 - Added manual Stable and Preview update checks; updates never download or install silently.
 - Made the traffic history time-based while minimized and made settings updates crash-safe through same-directory atomic replacement.
+- Preserved temporarily disconnected adapter choices and route weights so automatic recovery cannot be undone by another settings change.
 
 ## 2.3.0-dev.2 - 2026-08-29
 
