@@ -169,7 +169,8 @@ public sealed class Socks5Balancer : IAsyncDisposable
                     return;
                 }
                 await inbound.WriteAsync(new byte[] { 5, requiredMethod }, handshakeToken);
-                if (!await AuthenticateAsync(inbound, _credentials, handshakeToken))
+                // A valid username/password sub-negotiation is mandatory before CONNECT is read.
+                if (!await VerifyCredentialSubnegotiationAsync(inbound, _credentials, handshakeToken))
                     return;
 
                 if (await ReadByteAsync(inbound, handshakeToken) != 5) throw new IOException("Invalid SOCKS5 request.");
@@ -308,7 +309,10 @@ public sealed class Socks5Balancer : IAsyncDisposable
             .Concat(_routes.Except(routes).OrderBy(x => x.UnhealthyUntilUtc)).ToList();
     }
 
-    private static async Task<bool> AuthenticateAsync(Stream stream, ProxyCredentials credentials, CancellationToken token)
+    private static async Task<bool> VerifyCredentialSubnegotiationAsync(
+        Stream stream,
+        ProxyCredentials credentials,
+        CancellationToken token)
     {
         if (await ReadByteAsync(stream, token) != 1) return false;
         var username = await ReadExactAsync(stream, await ReadByteAsync(stream, token), token);

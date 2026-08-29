@@ -58,6 +58,17 @@ var authServerTask = Task.Run(async () =>
 await using var authProxy = new Socks5Balancer(0, _ => { }, credentials);
 await authProxy.StartAsync(new[] { ("127.0.0.1", 1) });
 
+using (var invalidProtocol = new TcpClient())
+{
+    await invalidProtocol.ConnectAsync(IPAddress.Loopback, authProxy.BoundPort, cts.Token);
+    var stream = invalidProtocol.GetStream();
+    await stream.WriteAsync(new byte[] { 4, 1, 2 }, cts.Token);
+    var reply = new byte[10];
+    var received = await stream.ReadAsync(reply, cts.Token);
+    if (received >= 2 && reply[1] == 0)
+        throw new Exception("Secure proxy accepted a non-SOCKS5 client.");
+}
+
 using (var unauthenticated = new TcpClient())
 {
     await unauthenticated.ConnectAsync(IPAddress.Loopback, authProxy.BoundPort, cts.Token);

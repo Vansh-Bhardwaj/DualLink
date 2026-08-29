@@ -2,7 +2,7 @@
 
 All notable DualLink changes are recorded here. Versions follow semantic versioning.
 
-## 2.3.0-dev.1 - 2026-08-29
+## 2.3.0-dev.2 - 2026-08-29
 
 - Added Smart, Balanced, and Backup connection behaviors with live switching.
 - Added per-route load tracking, failure cooldown, and automatic healthy-link failover.
@@ -17,6 +17,7 @@ All notable DualLink changes are recorded here. Versions follow semantic version
 - Replaced the letter-based shell icon with an original two-routes-to-one confluence mark and exact multi-resolution Windows ICO frames.
 - Added a branded notification-area menu plus live hover details for combined download, upload, active sessions, and routing mode.
 - Expanded integration tests for proxy authentication, failed-route quarantine, and full-path matching.
+- Clarified the SOCKS credential gate and added malformed-protocol regression coverage for a clean CodeQL security scan.
 
 ## 2.2.0 - 2026-08-29
 
