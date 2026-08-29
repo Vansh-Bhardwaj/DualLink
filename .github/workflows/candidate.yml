@@ -19,7 +19,7 @@ jobs:
       - name: Build verified candidate
         shell: pwsh
         run: ./build.ps1 -SkipInstaller
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
             dist/publish/DualLink.exe
