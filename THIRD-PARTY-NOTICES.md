@@ -41,6 +41,15 @@ DualLink's self-contained executable includes the Microsoft .NET Runtime. The ru
 
 The installer includes Microsoft Visual C++ Redistributable x64 version 14.44.35211.0, unmodified. Its use and redistribution are governed by the Microsoft Software License Terms displayed by the package and documented at https://visualstudio.microsoft.com/license-terms/.
 
+## Inter 4.1
+
+DualLink embeds the Inter Regular, Medium, and SemiBold typefaces for its interface.
+
+- Copyright: The Inter Project Authors
+- License: SIL Open Font License 1.1
+- Source: https://github.com/rsms/inter/releases/tag/v4.1
+- Complete license: `licenses/Inter-OFL-1.1.txt`
+
 ## Inno Setup
 
 Inno Setup is used to build the installer and is not installed with DualLink. The published installer was produced for a free, noncommercial release. Commercial users must comply with Inno Setup's current commercial licensing request: https://jrsoftware.org/ishelp/topic_purchase.htm.

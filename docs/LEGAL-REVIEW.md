@@ -18,6 +18,7 @@ DualLink source code is released under AGPL-3.0-only. This aligns the public pro
 | ndisapi source/interface | 3.6.2 | MIT notice included |
 | .NET Runtime | 10.0.11 | MIT license and complete third-party notices included |
 | Visual C++ Redistributable | 14.44.35211.0 | Unmodified redistributable; Microsoft terms linked |
+| Inter | 4.1 | Embedded static fonts; SIL Open Font License 1.1 included |
 | Inno Setup | 6.7.3 build tool | Not redistributed; noncommercial release posture disclosed |
 
 ## Completed release controls
@@ -29,7 +30,7 @@ DualLink source code is released under AGPL-3.0-only. This aligns the public pro
 - Privacy and security policies.
 - Installer notice shown before installation.
 - SPDX 2.3 SBOM and SHA-256 release checksums.
-- No bundled secrets, telemetry SDK, proprietary font, or third-party artwork.
+- No bundled secrets, telemetry SDK, proprietary font, or third-party artwork. The embedded Inter files are open-source and their OFL license is included.
 - Administrator/service/driver behavior disclosed.
 - Unsigned-binary warning disclosed.
 

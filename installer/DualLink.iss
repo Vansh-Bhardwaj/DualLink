@@ -54,6 +54,7 @@ Source: "licenses\ProxiFyre-AGPL-3.0.txt"; DestDir: "{app}\licenses"; Flags: ign
 Source: "licenses\Windows-Packet-Filter-MIT.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
 Source: "licenses\dotnet-runtime-MIT.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
 Source: "licenses\dotnet-runtime-THIRD-PARTY-NOTICES.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
+Source: "licenses\Inter-OFL-1.1.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\DualLink"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"

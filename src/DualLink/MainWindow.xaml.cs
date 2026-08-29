@@ -31,6 +31,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private UserSettings _settings = new();
     private LinkInfo? _selectedEthernet;
     private LinkInfo? _selectedWifi;
+    private BandwidthOption? _selectedBandwidthOption;
     private bool _autoBoost = true;
     private bool _armed;
     private bool _boosting;
@@ -38,6 +39,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private bool _allowClose;
     private bool _exitRequested;
     private bool _closeToTray = true;
+    private bool _loadingSettings;
     private string _statusText = "Ready";
     private Brush _statusColor = new SolidColorBrush(Color.FromRgb(140, 150, 165));
     private string _prerequisiteText = "Checking";
@@ -89,17 +91,26 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public ObservableCollection<LinkInfo> EthernetLinks { get; } = new();
     public ObservableCollection<LinkInfo> WifiLinks { get; } = new();
     public ObservableCollection<string> Activity { get; } = new();
+    public ObservableCollection<BandwidthOption> BandwidthOptions { get; } = new()
+    {
+        new BandwidthOption { Mbps = 0, DisplayName = "No limit" },
+        new BandwidthOption { Mbps = 25, DisplayName = "25 Mbps" },
+        new BandwidthOption { Mbps = 50, DisplayName = "50 Mbps" },
+        new BandwidthOption { Mbps = 100, DisplayName = "100 Mbps" },
+        new BandwidthOption { Mbps = 200, DisplayName = "200 Mbps" },
+        new BandwidthOption { Mbps = 300, DisplayName = "300 Mbps" }
+    };
 
     public LinkInfo? SelectedEthernet
     {
         get => _selectedEthernet;
-        set { if (_selectedEthernet != value) { _selectedEthernet = value; OnPropertyChanged(); SaveSettings(); } }
+        set { if (_selectedEthernet != value) { _selectedEthernet = value; OnPropertyChanged(); OnPropertyChanged(nameof(CombinedSpeedText)); OnPropertyChanged(nameof(CombinedUploadSpeedText)); SaveSettings(); } }
     }
 
     public LinkInfo? SelectedWifi
     {
         get => _selectedWifi;
-        set { if (_selectedWifi != value) { _selectedWifi = value; OnPropertyChanged(); SaveSettings(); } }
+        set { if (_selectedWifi != value) { _selectedWifi = value; OnPropertyChanged(); OnPropertyChanged(nameof(CombinedSpeedText)); OnPropertyChanged(nameof(CombinedUploadSpeedText)); SaveSettings(); } }
     }
 
     public bool AutoBoost
@@ -114,15 +125,30 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         set { if (_closeToTray != value) { _closeToTray = value; OnPropertyChanged(); SaveSettings(); } }
     }
 
+    public BandwidthOption? SelectedBandwidthOption
+    {
+        get => _selectedBandwidthOption;
+        set
+        {
+            if (_selectedBandwidthOption == value) return;
+            _selectedBandwidthOption = value;
+            OnPropertyChanged();
+            _balancer.SetDownloadLimit(value?.Mbps ?? 0);
+            SaveSettings();
+        }
+    }
+
     public string StatusText { get => _statusText; private set { _statusText = value; OnPropertyChanged(); } }
     public Brush StatusColor { get => _statusColor; private set { _statusColor = value; OnPropertyChanged(); } }
     public string PrerequisiteText { get => _prerequisiteText; private set { _prerequisiteText = value; OnPropertyChanged(); } }
     public int ActiveConnections => _balancer.ActiveConnections;
     public string CombinedSpeedText => $"{(SelectedEthernet?.DownloadMbps ?? 0) + (SelectedWifi?.DownloadMbps ?? 0):0.0} Mbps";
+    public string CombinedUploadSpeedText => $"{(SelectedEthernet?.UploadMbps ?? 0) + (SelectedWifi?.UploadMbps ?? 0):0.0} Mbps";
     public string VersionText => $"Version {Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "2.0.0"}";
 
     private void LoadProfilesAndSettings()
     {
+        _loadingSettings = true;
         try
         {
             if (File.Exists(_settingsPath))
@@ -133,6 +159,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         AutoBoost = _settings.AutoBoost || !File.Exists(_settingsPath);
         CloseToTray = _settings.CloseToTray;
         _armed = _settings.Armed;
+        SelectedBandwidthOption = BandwidthOptions.FirstOrDefault(x => x.Mbps == _settings.DownloadLimitMbps) ?? BandwidthOptions[0];
         var defaults = new List<AppProfile>
         {
             new AppProfile { Name="Epic Games", Subtitle="Epic and EOS game downloads", Accent="#49B8FF", Processes=new(){"EpicGamesLauncher.exe","EpicOnlineServicesInstallHelper.exe"} },
@@ -158,6 +185,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             profile.IsSelected = _settings.SelectedProfiles.Contains(profile.Name, StringComparer.OrdinalIgnoreCase);
             Profiles.Add(profile);
         }
+        _loadingSettings = false;
     }
 
     private void RefreshAdapters()
@@ -192,6 +220,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             NetworkDiscovery.UpdateRates(EthernetLinks.Concat(WifiLinks), 1);
             OnPropertyChanged(nameof(ActiveConnections));
             OnPropertyChanged(nameof(CombinedSpeedText));
+            OnPropertyChanged(nameof(CombinedUploadSpeedText));
             UpdateRunningProfiles();
 
             var selected = Profiles.Where(x => x.IsSelected).ToList();
@@ -306,7 +335,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void SaveSettings()
     {
-        if (!IsInitialized) return;
+        if (!IsInitialized || _loadingSettings) return;
         try
         {
             _settings.AutoBoost = AutoBoost;
@@ -316,6 +345,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             _settings.EthernetWeight = SelectedEthernet?.Weight ?? 2;
             _settings.WifiWeight = SelectedWifi?.Weight ?? 5;
             _settings.CloseToTray = CloseToTray;
+            _settings.DownloadLimitMbps = SelectedBandwidthOption?.Mbps ?? 0;
             _settings.SelectedProfiles = Profiles.Where(x => x.IsSelected).Select(x => x.Name).ToList();
             _settings.CustomProfiles = Profiles.Where(x => x.IsCustom).ToList();
             File.WriteAllText(_settingsPath, JsonSerializer.Serialize(_settings, new JsonSerializerOptions { WriteIndented = true }));
@@ -463,6 +493,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         DetailsDrawer.Visibility = Visibility.Collapsed;
         SettingsDrawer.Visibility = SettingsDrawer.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
     }
+
+    public void ShowSettingsPreview() => SettingsDrawer.Visibility = Visibility.Visible;
+    public void ShowNetworkPickerPreview() => WifiAdapterPicker.IsDropDownOpen = true;
 
     private void CloseDrawer_Click(object sender, RoutedEventArgs e)
     {

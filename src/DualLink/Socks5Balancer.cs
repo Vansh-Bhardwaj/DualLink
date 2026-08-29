@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.IO;
+using System.Buffers;
 
 namespace DualLink;
 
@@ -15,6 +16,7 @@ public sealed class Socks5Balancer : IAsyncDisposable
     private readonly object _sourceLock = new();
     private int _nextSource = -1;
     private int _activeConnections;
+    private readonly TransferRateLimiter _downloadLimiter = new();
 
     public Socks5Balancer(int port, Action<string> log)
     {
@@ -24,6 +26,13 @@ public sealed class Socks5Balancer : IAsyncDisposable
 
     public int ActiveConnections => Volatile.Read(ref _activeConnections);
     public bool IsRunning => _listener is not null;
+    public int DownloadLimitMbps => _downloadLimiter.MegabitsPerSecond;
+
+    public void SetDownloadLimit(int megabitsPerSecond)
+    {
+        _downloadLimiter.SetLimit(megabitsPerSecond);
+        _log(megabitsPerSecond <= 0 ? "Download limit disabled" : $"Download limit set to {megabitsPerSecond} Mbps");
+    }
 
     public Task StartAsync(IEnumerable<(string Address, int Weight)> sources)
     {
@@ -121,7 +130,7 @@ public sealed class Socks5Balancer : IAsyncDisposable
 
                 using var outboundStream = new NetworkStream(outbound, ownsSocket: false);
                 var upload = inbound.CopyToAsync(outboundStream, token);
-                var download = outboundStream.CopyToAsync(inbound, token);
+                var download = CopyDownloadAsync(outboundStream, inbound, token);
                 await Task.WhenAny(upload, download);
             }
             catch (OperationCanceledException) { }
@@ -137,6 +146,22 @@ public sealed class Socks5Balancer : IAsyncDisposable
                 Interlocked.Decrement(ref _activeConnections);
             }
         }
+    }
+
+    private async Task CopyDownloadAsync(Stream source, Stream destination, CancellationToken token)
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(64 * 1024);
+        try
+        {
+            while (true)
+            {
+                var count = await source.ReadAsync(buffer.AsMemory(0, buffer.Length), token);
+                if (count == 0) break;
+                await _downloadLimiter.ThrottleAsync(count, token);
+                await destination.WriteAsync(buffer.AsMemory(0, count), token);
+            }
+        }
+        finally { ArrayPool<byte>.Shared.Return(buffer); }
     }
 
     private async Task<(Socket Socket, IPAddress Source)> ConnectBalancedAsync(string host, int port, CancellationToken token)

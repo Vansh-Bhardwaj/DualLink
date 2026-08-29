@@ -61,6 +61,33 @@ if (await health.CheckAndRecoverAsync() || restartCount != 1)
 
 Console.WriteLine("PASS: stopped application filter is detected and recovered");
 
+var limiter = new TransferRateLimiter();
+limiter.SetLimit(2);
+var throttleTimer = System.Diagnostics.Stopwatch.StartNew();
+for (var i = 0; i < 4; i++)
+    await limiter.ThrottleAsync(64 * 1024, cts.Token);
+throttleTimer.Stop();
+if (throttleTimer.Elapsed < TimeSpan.FromMilliseconds(650) || throttleTimer.Elapsed > TimeSpan.FromSeconds(3))
+    throw new Exception($"Download limiter timing was outside tolerance: {throttleTimer.Elapsed.TotalMilliseconds:0} ms.");
+limiter.SetLimit(0);
+var unlimitedTimer = System.Diagnostics.Stopwatch.StartNew();
+await limiter.ThrottleAsync(64 * 1024, cts.Token);
+unlimitedTimer.Stop();
+if (unlimitedTimer.Elapsed > TimeSpan.FromMilliseconds(100))
+    throw new Exception("Disabled download limiter still delayed traffic.");
+
+Console.WriteLine($"PASS: live download limiter pacing: {throttleTimer.Elapsed.TotalMilliseconds:0} ms");
+
+var friendlyLink = new LinkInfo
+{
+    Id = "test", Name = "Wi-Fi", Description = "Wireless adapter", Address = "127.0.0.1",
+    Gateway = "127.0.0.254", Kind = "Wi-Fi", NetworkName = "Phone hotspot"
+};
+if (friendlyLink.ToString() != "Phone hotspot" || friendlyLink.DetailText != "Wi-Fi · Wireless adapter")
+    throw new Exception("Friendly network labels regressed.");
+
+Console.WriteLine("PASS: adapter dropdown uses friendly network labels");
+
 async Task SendRequestAsync(CancellationToken token)
 {
     using var client = new TcpClient();

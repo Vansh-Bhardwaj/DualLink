@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Diagnostics;
+using System.Text.RegularExpressions;
 
 namespace DualLink;
 
@@ -9,6 +11,7 @@ public static class NetworkDiscovery
     public static List<LinkInfo> FindInternetLinks()
     {
         var links = new List<LinkInfo>();
+        var wifiNetworks = FindConnectedWifiNetworks();
         foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
         {
             if (nic.OperationalStatus != OperationalStatus.Up ||
@@ -35,7 +38,9 @@ public static class NetworkDiscovery
                 Address = address.Address.ToString(),
                 Gateway = gateway.Address.ToString(),
                 Kind = kind,
-                LastReceivedBytes = stats.BytesReceived
+                NetworkName = wifiNetworks.GetValueOrDefault(nic.Id.Trim('{', '}')),
+                LastReceivedBytes = stats.BytesReceived,
+                LastSentBytes = stats.BytesSent
             });
         }
         return links;
@@ -49,12 +54,50 @@ public static class NetworkDiscovery
             if (!interfaces.TryGetValue(link.Id, out var nic)) continue;
             try
             {
-                var current = nic.GetIPv4Statistics().BytesReceived;
-                var delta = Math.Max(0, current - link.LastReceivedBytes);
-                link.LastReceivedBytes = current;
-                link.DownloadMbps = delta * 8d / elapsedSeconds / 1_000_000d;
+                var stats = nic.GetIPv4Statistics();
+                var receivedDelta = Math.Max(0, stats.BytesReceived - link.LastReceivedBytes);
+                var sentDelta = Math.Max(0, stats.BytesSent - link.LastSentBytes);
+                link.LastReceivedBytes = stats.BytesReceived;
+                link.LastSentBytes = stats.BytesSent;
+                link.DownloadMbps = receivedDelta * 8d / elapsedSeconds / 1_000_000d;
+                link.UploadMbps = sentDelta * 8d / elapsedSeconds / 1_000_000d;
             }
-            catch { link.DownloadMbps = 0; }
+            catch { link.DownloadMbps = 0; link.UploadMbps = 0; }
         }
+    }
+
+    private static Dictionary<string, string> FindConnectedWifiNetworks()
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            using var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = "netsh.exe",
+                Arguments = "wlan show interfaces",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                CreateNoWindow = true
+            });
+            if (process is null) return result;
+            var output = process.StandardOutput.ReadToEnd();
+            process.WaitForExit(2000);
+
+            string? currentId = null;
+            foreach (var line in output.Split('\n'))
+            {
+                var guidMatch = Regex.Match(line, @"^\s*GUID\s*:\s*(?<value>[{(]?[0-9a-f-]{36}[)}]?)\s*$", RegexOptions.IgnoreCase);
+                if (guidMatch.Success)
+                {
+                    currentId = guidMatch.Groups["value"].Value.Trim('{', '}', '(', ')');
+                    continue;
+                }
+                var ssidMatch = Regex.Match(line, @"^\s*SSID\s*:\s*(?<value>.+?)\s*$", RegexOptions.IgnoreCase);
+                if (currentId is not null && ssidMatch.Success)
+                    result[currentId] = ssidMatch.Groups["value"].Value;
+            }
+        }
+        catch { }
+        return result;
     }
 }

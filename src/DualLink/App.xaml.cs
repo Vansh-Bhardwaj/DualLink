@@ -15,13 +15,20 @@ public partial class App : System.Windows.Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
-        if (e.Args.Length >= 2 && e.Args[0].Equals("--snapshot", StringComparison.OrdinalIgnoreCase))
+        if (e.Args.Length >= 2 &&
+            (e.Args[0].Equals("--snapshot", StringComparison.OrdinalIgnoreCase) ||
+             e.Args[0].Equals("--snapshot-settings", StringComparison.OrdinalIgnoreCase) ||
+             e.Args[0].Equals("--snapshot-picker", StringComparison.OrdinalIgnoreCase)))
         {
             base.OnStartup(e);
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
             var preview = new MainWindow(previewMode: true);
             preview.Loaded += (_, _) => preview.Dispatcher.BeginInvoke(async () =>
             {
+                if (e.Args[0].Equals("--snapshot-settings", StringComparison.OrdinalIgnoreCase))
+                    preview.ShowSettingsPreview();
+                if (e.Args[0].Equals("--snapshot-picker", StringComparison.OrdinalIgnoreCase))
+                    preview.ShowNetworkPickerPreview();
                 await Task.Delay(400);
                 preview.Measure(new Size(preview.Width, preview.Height));
                 preview.Arrange(new Rect(0, 0, preview.Width, preview.Height));

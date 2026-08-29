@@ -4,10 +4,21 @@
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         Title="DualLink" Width="1080" Height="700" MinWidth="940" MinHeight="620"
         Background="{StaticResource CanvasBrush}" Foreground="{StaticResource TextBrush}"
+        FontFamily="{StaticResource AppFont}"
         WindowStyle="None" ResizeMode="CanResize" WindowStartupLocation="CenterScreen">
   <shell:WindowChrome.WindowChrome>
     <shell:WindowChrome CaptionHeight="0" ResizeBorderThickness="6" CornerRadius="12" GlassFrameThickness="0" />
   </shell:WindowChrome.WindowChrome>
+
+  <Window.Resources>
+    <DataTemplate x:Key="LinkOptionTemplate">
+      <StackPanel Margin="1,1">
+        <TextBlock Text="{Binding DisplayName}" FontWeight="Medium" TextTrimming="CharacterEllipsis" />
+        <TextBlock Text="{Binding DetailText}" Foreground="{StaticResource TertiaryBrush}" FontSize="10.5"
+                   Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
+      </StackPanel>
+    </DataTemplate>
+  </Window.Resources>
 
   <Border Background="{StaticResource ContentBrush}" BorderBrush="#45464E" BorderThickness="1" CornerRadius="12">
     <Grid>
@@ -33,7 +44,7 @@
                       Stroke="{StaticResource AccentBrush}" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
               </Grid>
             </Border>
-            <TextBlock Text="DualLink" FontFamily="Segoe UI Variable Display, Segoe UI" FontSize="13" FontWeight="SemiBold"
+            <TextBlock Text="DualLink" FontSize="13" FontWeight="Medium"
                        Margin="9,0,0,0" VerticalAlignment="Center" />
             <TextBlock Text="{Binding VersionText}" Foreground="{StaticResource TertiaryBrush}" FontSize="10"
                        Margin="8,1,0,0" VerticalAlignment="Center" />
@@ -82,6 +93,8 @@
               <RowDefinition Height="Auto" />
               <RowDefinition Height="1" />
               <RowDefinition Height="Auto" />
+              <RowDefinition Height="16" />
+              <RowDefinition Height="Auto" />
               <RowDefinition Height="*" />
               <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
@@ -89,9 +102,15 @@
             <Grid>
               <StackPanel>
                 <TextBlock Text="Connection mix" Style="{StaticResource SectionTitle}" />
-                <TextBlock Text="Live combined throughput" Style="{StaticResource CaptionText}" Margin="0,4,0,0" />
-                <TextBlock Text="{Binding CombinedSpeedText}" FontFamily="Segoe UI Variable Display, Segoe UI"
-                           FontSize="31" FontWeight="SemiBold" Margin="0,5,0,0" />
+                <TextBlock Text="What both connections are using right now" Style="{StaticResource CaptionText}" Margin="0,4,0,0" />
+                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                  <TextBlock Text="↓" Foreground="{StaticResource WifiBrush}" FontSize="17" Margin="0,6,7,0" />
+                  <TextBlock Text="{Binding CombinedSpeedText}" FontSize="29" FontWeight="Medium" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="1,2,0,0">
+                  <TextBlock Text="Upload" Foreground="{StaticResource TertiaryBrush}" FontSize="10.5" />
+                  <TextBlock Text="{Binding CombinedUploadSpeedText}" Foreground="{StaticResource SecondaryBrush}" FontSize="10.5" FontWeight="Medium" Margin="6,0,0,0" />
+                </StackPanel>
               </StackPanel>
               <Button HorizontalAlignment="Right" VerticalAlignment="Top" Style="{StaticResource IconButton}"
                       ToolTip="Refresh network adapters" Click="RefreshAdapters_Click">
@@ -107,19 +126,19 @@
               <Grid>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                   <Ellipse Width="7" Height="7" Fill="{StaticResource EthernetBrush}" />
-                  <TextBlock Text="Ethernet" FontWeight="SemiBold" Margin="8,0,0,0" />
+                  <TextBlock Text="Ethernet" FontWeight="Medium" Margin="8,0,0,0" />
                 </StackPanel>
-                <TextBlock Text="{Binding SelectedEthernet.SpeedText}" HorizontalAlignment="Right" FontWeight="SemiBold" />
+                <TextBlock Text="{Binding SelectedEthernet.SpeedText}" HorizontalAlignment="Right" Foreground="{StaticResource SecondaryBrush}" FontSize="10.5" />
               </Grid>
               <ComboBox Grid.Row="1" ItemsSource="{Binding EthernetLinks}" SelectedItem="{Binding SelectedEthernet}"
-                        Margin="15,8,0,0" Height="30" />
+                        ItemTemplate="{StaticResource LinkOptionTemplate}" Margin="15,8,0,0" Height="32" />
               <Grid Grid.Row="2" Margin="15,9,0,0">
                 <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                <Button Content="Use only" Style="{StaticResource QuietButton}" HorizontalAlignment="Left" Padding="0,4"
+                <Button Content="Use this only" Style="{StaticResource QuietButton}" HorizontalAlignment="Left" Padding="0,4"
                         ToolTip="Route new target connections through Ethernet only" Click="EthernetOnly_Click" />
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                   <Button Content="−" Style="{StaticResource IconButton}" Width="28" Height="28" Padding="0" Click="EthernetWeightDown_Click" />
-                  <TextBlock Text="{Binding SelectedEthernet.WeightText}" Width="38" TextAlignment="Center" VerticalAlignment="Center" FontWeight="SemiBold" />
+                  <TextBlock Text="{Binding SelectedEthernet.WeightText}" Width="58" TextAlignment="Center" VerticalAlignment="Center" FontWeight="Medium" FontSize="10.5" />
                   <Button Content="+" Style="{StaticResource IconButton}" Width="28" Height="28" Padding="0" Click="EthernetWeightUp_Click" />
                 </StackPanel>
               </Grid>
@@ -133,19 +152,19 @@
               <Grid>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                   <Ellipse Width="7" Height="7" Fill="{StaticResource WifiBrush}" />
-                  <TextBlock Text="Wi-Fi / hotspot" FontWeight="SemiBold" Margin="8,0,0,0" />
+                  <TextBlock Text="Wi-Fi / hotspot" FontWeight="Medium" Margin="8,0,0,0" />
                 </StackPanel>
-                <TextBlock Text="{Binding SelectedWifi.SpeedText}" HorizontalAlignment="Right" FontWeight="SemiBold" />
+                <TextBlock Text="{Binding SelectedWifi.SpeedText}" HorizontalAlignment="Right" Foreground="{StaticResource SecondaryBrush}" FontSize="10.5" />
               </Grid>
-              <ComboBox Grid.Row="1" ItemsSource="{Binding WifiLinks}" SelectedItem="{Binding SelectedWifi}"
-                        Margin="15,8,0,0" Height="30" />
+              <ComboBox x:Name="WifiAdapterPicker" Grid.Row="1" ItemsSource="{Binding WifiLinks}" SelectedItem="{Binding SelectedWifi}"
+                        ItemTemplate="{StaticResource LinkOptionTemplate}" Margin="15,8,0,0" Height="32" />
               <Grid Grid.Row="2" Margin="15,9,0,0">
                 <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                <Button Content="Use only" Style="{StaticResource QuietButton}" HorizontalAlignment="Left" Padding="0,4"
+                <Button Content="Use this only" Style="{StaticResource QuietButton}" HorizontalAlignment="Left" Padding="0,4"
                         ToolTip="Route new target connections through Wi-Fi only" Click="WifiOnly_Click" />
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                   <Button Content="−" Style="{StaticResource IconButton}" Width="28" Height="28" Padding="0" Click="WifiWeightDown_Click" />
-                  <TextBlock Text="{Binding SelectedWifi.WeightText}" Width="38" TextAlignment="Center" VerticalAlignment="Center" FontWeight="SemiBold" />
+                  <TextBlock Text="{Binding SelectedWifi.WeightText}" Width="58" TextAlignment="Center" VerticalAlignment="Center" FontWeight="Medium" FontSize="10.5" />
                   <Button Content="+" Style="{StaticResource IconButton}" Width="28" Height="28" Padding="0" Click="WifiWeightUp_Click" />
                 </StackPanel>
               </Grid>
@@ -156,14 +175,24 @@
             <Grid Grid.Row="6" Margin="0,14,0,0">
               <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
               <StackPanel>
-                <TextBlock Text="Automatic" FontWeight="SemiBold" />
-                <TextBlock Text="Boost while a selected app is running" Style="{StaticResource CaptionText}" Margin="0,2,14,0" TextWrapping="Wrap" />
+                <TextBlock Text="Start automatically" FontWeight="Medium" />
+                <TextBlock Text="Boost when one of your chosen apps opens" Style="{StaticResource CaptionText}" Margin="0,2,14,0" TextWrapping="Wrap" />
               </StackPanel>
               <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding AutoBoost, Mode=TwoWay}"
                         Click="AutoBoost_Click" VerticalAlignment="Center" />
             </Grid>
 
-            <TextBlock Grid.Row="8" Text="Setting a route to Off affects new connections without closing the app."
+            <Grid Grid.Row="8">
+              <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="112" /></Grid.ColumnDefinitions>
+              <StackPanel>
+                <TextBlock Text="Download speed limit" FontWeight="Medium" />
+                <TextBlock Text="Leave bandwidth for video, calls, or browsing" Style="{StaticResource CaptionText}" Margin="0,2,12,0" TextWrapping="Wrap" />
+              </StackPanel>
+              <ComboBox Grid.Column="1" ItemsSource="{Binding BandwidthOptions}" SelectedItem="{Binding SelectedBandwidthOption, Mode=TwoWay}"
+                        Height="32" VerticalAlignment="Center" />
+            </Grid>
+
+            <TextBlock Grid.Row="10" Text="Shares decide where new downloads begin. Turning a route off never closes an existing download."
                        Style="{StaticResource CaptionText}" TextWrapping="Wrap" LineHeight="16" />
           </Grid>
         </Border>
@@ -203,7 +232,7 @@
                         </Grid.ColumnDefinitions>
                         <Ellipse Width="7" Height="7" Fill="{Binding Accent}" VerticalAlignment="Center" HorizontalAlignment="Left" />
                         <StackPanel Grid.Column="1">
-                          <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="SemiBold" />
+                          <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="Medium" />
                           <TextBlock Text="{Binding Subtitle}" Style="{StaticResource CaptionText}" Margin="0,3,0,0" />
                         </StackPanel>
                         <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">

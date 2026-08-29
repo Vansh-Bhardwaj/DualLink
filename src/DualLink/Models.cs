@@ -48,6 +48,7 @@ public sealed class AppProfile : INotifyPropertyChanged
 public sealed class LinkInfo : INotifyPropertyChanged
 {
     private double _downloadMbps;
+    private double _uploadMbps;
     private int _weight = 1;
 
     public required string Id { get; init; }
@@ -56,12 +57,20 @@ public sealed class LinkInfo : INotifyPropertyChanged
     public required string Address { get; init; }
     public required string Gateway { get; init; }
     public required string Kind { get; init; }
+    public string? NetworkName { get; init; }
     public long LastReceivedBytes { get; set; }
+    public long LastSentBytes { get; set; }
 
     public double DownloadMbps
     {
         get => _downloadMbps;
         set { if (Math.Abs(_downloadMbps - value) > 0.05) { _downloadMbps = value; OnPropertyChanged(); OnPropertyChanged(nameof(SpeedText)); } }
+    }
+
+    public double UploadMbps
+    {
+        get => _uploadMbps;
+        set { if (Math.Abs(_uploadMbps - value) > 0.05) { _uploadMbps = value; OnPropertyChanged(); OnPropertyChanged(nameof(SpeedText)); } }
     }
 
     public int Weight
@@ -70,11 +79,14 @@ public sealed class LinkInfo : INotifyPropertyChanged
         set { var next = Math.Clamp(value, 0, 10); if (_weight != next) { _weight = next; OnPropertyChanged(); OnPropertyChanged(nameof(WeightText)); OnPropertyChanged(nameof(IsEnabled)); } }
     }
 
-    public string SpeedText => $"{DownloadMbps:0.0} Mbps";
-    public string WeightText => Weight == 0 ? "Off" : $"{Weight}×";
+    public string SpeedText => $"↓ {DownloadMbps:0.0}  ↑ {UploadMbps:0.0}";
+    public string WeightText => Weight == 0 ? "Off" : Weight == 1 ? "1 share" : $"{Weight} shares";
     public bool IsEnabled => Weight > 0;
-    public string DisplayName => Name;
-    public string DiagnosticName => $"{Name} · {Address}";
+    public string DisplayName => string.IsNullOrWhiteSpace(NetworkName) ? Name : NetworkName;
+    public string DetailText => string.IsNullOrWhiteSpace(NetworkName) ? Description : $"{Name} · {Description}";
+    public string DiagnosticName => $"{DisplayName} · {Address}";
+
+    public override string ToString() => DisplayName;
 
     public event PropertyChangedEventHandler? PropertyChanged;
     private void OnPropertyChanged([CallerMemberName] string? name = null) =>
@@ -90,8 +102,16 @@ public sealed class UserSettings
     public int EthernetWeight { get; set; } = 2;
     public int WifiWeight { get; set; } = 5;
     public bool CloseToTray { get; set; } = true;
+    public int DownloadLimitMbps { get; set; }
     public List<string> SelectedProfiles { get; set; } = new();
     public List<AppProfile> CustomProfiles { get; set; } = new();
+}
+
+public sealed class BandwidthOption
+{
+    public required int Mbps { get; init; }
+    public required string DisplayName { get; init; }
+    public override string ToString() => DisplayName;
 }
 
 public sealed class BoostSessionState

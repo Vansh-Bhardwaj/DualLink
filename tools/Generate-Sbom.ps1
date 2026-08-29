@@ -52,6 +52,12 @@ $document = [ordered]@{
             licenseConcluded = 'NOASSERTION'; licenseDeclared = 'NOASSERTION'
             checksums = @([ordered]@{ algorithm = 'SHA256'; checksumValue = 'cc0ff0eb1dc3f5188ae6300faef32bf5beeba4bdd6e8e445a9184072096b713b' })
             copyrightText = 'Copyright Microsoft Corporation'
+        },
+        [ordered]@{
+            name = 'Inter'; SPDXID = 'SPDXRef-Package-Inter'; versionInfo = '4.1'
+            downloadLocation = 'https://github.com/rsms/inter/releases/tag/v4.1'; filesAnalyzed = $false
+            licenseConcluded = 'OFL-1.1'; licenseDeclared = 'OFL-1.1'
+            copyrightText = 'Copyright The Inter Project Authors'
         }
     )
     hasExtractedLicensingInfos = @(
@@ -66,6 +72,7 @@ $document = [ordered]@{
         [ordered]@{ spdxElementId = 'SPDXRef-Package-DualLink'; relationshipType = 'DEPENDS_ON'; relatedSpdxElement = 'SPDXRef-Package-ProxiFyre' },
         [ordered]@{ spdxElementId = 'SPDXRef-Package-DualLink'; relationshipType = 'DEPENDS_ON'; relatedSpdxElement = 'SPDXRef-Package-WinpkFilter' },
         [ordered]@{ spdxElementId = 'SPDXRef-Package-DualLink'; relationshipType = 'CONTAINS'; relatedSpdxElement = 'SPDXRef-Package-DotNetRuntime' },
+        [ordered]@{ spdxElementId = 'SPDXRef-Package-DualLink'; relationshipType = 'CONTAINS'; relatedSpdxElement = 'SPDXRef-Package-Inter' },
         [ordered]@{ spdxElementId = 'SPDXRef-Package-ProxiFyre'; relationshipType = 'DEPENDS_ON'; relatedSpdxElement = 'SPDXRef-Package-VCRedist' }
     )
 }

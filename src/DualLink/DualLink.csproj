@@ -19,5 +19,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Page Remove="MainWindow.xaml" />
+    <Resource Include="Assets\Fonts\*.ttf" />
   </ItemGroup>
 </Project>

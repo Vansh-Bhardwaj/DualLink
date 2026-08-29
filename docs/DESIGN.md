@@ -18,7 +18,8 @@ The interface follows the information discipline of TripMode's application list 
 - Use one graphite content plane and one subtly lighter navigation/utility plane.
 - Reserve translucent or raised material for controls and transient drawers, not every content row.
 - Eliminate card nesting, uppercase eyebrow labels, neon outlines, and oversized danger actions.
-- Use Segoe UI Variable, which is supplied by Windows; do not bundle Apple's proprietary SF fonts or symbols.
+- Use the embedded Inter type family for its screen-focused proportions and high small-size legibility. It provides the calm neo-grotesque character associated with contemporary Apple and Google interfaces without redistributing proprietary SF Pro or Google Sans assets.
+- Prefer Regular for prose, Medium for labels and application names, and SemiBold only for exceptional emphasis. Avoid walls of bold white text.
 - Use a restrained indigo action color. Ethernet amber and Wi-Fi cyan identify physical links only.
 - Use hairline separators and grouped list rows instead of bordered cards.
 - Use geometry-based monochrome icons with a consistent 16-pixel optical size.

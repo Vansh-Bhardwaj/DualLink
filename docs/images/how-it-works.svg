@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="330" viewBox="0 0 1120 330" role="img" aria-labelledby="title desc">
+  <title id="title">How DualLink distributes application downloads</title>
+  <desc id="desc">Selected applications connect through DualLink, which assigns each new connection to Ethernet or Wi-Fi while leaving all other applications unchanged.</desc>
+  <defs>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#1f2026"/><stop offset="1" stop-color="#17181c"/></linearGradient>
+    <filter id="shadow"><feDropShadow dx="0" dy="8" stdDeviation="12" flood-opacity=".24"/></filter>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0l10 5-10 5z" fill="#777b8b"/></marker>
+  </defs>
+  <rect width="1120" height="330" rx="28" fill="#111215"/>
+  <g font-family="Inter,Segoe UI,sans-serif">
+    <text x="56" y="54" fill="#ececf0" font-size="23" font-weight="600">One download, more available bandwidth</text>
+    <text x="56" y="81" fill="#aeb0ba" font-size="14">DualLink distributes new connections. It never changes traffic from apps you did not select.</text>
+    <g filter="url(#shadow)">
+      <rect x="56" y="118" width="236" height="146" rx="18" fill="url(#panel)" stroke="#34353c"/>
+      <circle cx="88" cy="151" r="6" fill="#7d8fff"/>
+      <text x="107" y="157" fill="#ececf0" font-size="17" font-weight="600">Selected apps</text>
+      <text x="88" y="195" fill="#b0b1ba" font-size="14">Epic Games</text>
+      <text x="88" y="222" fill="#b0b1ba" font-size="14">Steam</text>
+      <text x="88" y="249" fill="#b0b1ba" font-size="14">Your browser</text>
+      <rect x="408" y="118" width="250" height="146" rx="18" fill="#272932" stroke="#59627e"/>
+      <rect x="438" y="143" width="40" height="40" rx="11" fill="#343a55"/>
+      <path d="M449 153v20m9-14v14m9-18v18" stroke="#8ea0ff" stroke-width="3" stroke-linecap="round"/>
+      <text x="497" y="159" fill="#ececf0" font-size="17" font-weight="600">DualLink</text>
+      <text x="438" y="205" fill="#b0b1ba" font-size="14">Assigns each new TCP connection</text>
+      <text x="438" y="229" fill="#b0b1ba" font-size="14">using your chosen shares and limit</text>
+      <rect x="776" y="108" width="288" height="70" rx="17" fill="url(#panel)" stroke="#55472d"/>
+      <circle cx="808" cy="143" r="7" fill="#f1b85b"/>
+      <text x="829" y="140" fill="#ececf0" font-size="16" font-weight="600">Ethernet</text>
+      <text x="829" y="160" fill="#aeb0ba" font-size="12">Stable wired route</text>
+      <rect x="776" y="194" width="288" height="70" rx="17" fill="url(#panel)" stroke="#31505c"/>
+      <circle cx="808" cy="229" r="7" fill="#60c8e8"/>
+      <text x="829" y="226" fill="#ececf0" font-size="16" font-weight="600">Wi-Fi or hotspot</text>
+      <text x="829" y="246" fill="#aeb0ba" font-size="12">A second independent route</text>
+    </g>
+    <path d="M304 191h87" stroke="#777b8b" stroke-width="2" marker-end="url(#arrow)"/>
+    <path d="M670 177c48 0 45-34 88-34" stroke="#f1b85b" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+    <path d="M670 205c48 0 45 24 88 24" stroke="#60c8e8" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+  </g>
+</svg>
