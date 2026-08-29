@@ -7,6 +7,9 @@ param(
 $ErrorActionPreference = 'Stop'
 $repoRoot = $PSScriptRoot
 $version = (Get-Content -LiteralPath (Join-Path $repoRoot 'VERSION') -Raw).Trim()
+$props = [xml](Get-Content -LiteralPath (Join-Path $repoRoot 'Directory.Build.props') -Raw)
+$displayVersion = [string]$props.Project.PropertyGroup.InformationalVersion
+if ([string]::IsNullOrWhiteSpace($displayVersion)) { $displayVersion = $version }
 $appProject = Join-Path $repoRoot 'src\DualLink\DualLink.csproj'
 $testProject = Join-Path $repoRoot 'tests\DualLink.Tests\DualLink.Tests.csproj'
 $publishDirectory = Join-Path $repoRoot 'dist\publish'
@@ -32,7 +35,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Watchdog publish failed.' }
 Copy-Item -LiteralPath (Join-Path $watchdogPublishDirectory 'DualLink.Watchdog.exe') -Destination (Join-Path $publishDirectory 'DualLink.Watchdog.exe') -Force
 
 $sbomPath = Join-Path $repoRoot 'dist\DualLink.spdx.json'
-& (Join-Path $repoRoot 'tools\Generate-Sbom.ps1') -Version $version -ApplicationPath (Join-Path $publishDirectory 'DualLink.exe') -OutputPath $sbomPath
+& (Join-Path $repoRoot 'tools\Generate-Sbom.ps1') -Version $displayVersion -ApplicationPath (Join-Path $publishDirectory 'DualLink.exe') -OutputPath $sbomPath
 
 if (-not $SkipInstaller) {
     $compiler = @(
@@ -41,11 +44,11 @@ if (-not $SkipInstaller) {
         (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe')
     ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
     if (-not $compiler) { throw 'Inno Setup 6 was not found.' }
-    & $compiler "/DAppVersion=$version" (Join-Path $repoRoot 'installer\DualLink.iss')
+    & $compiler "/DAppVersion=$displayVersion" "/DNumericVersion=$version" (Join-Path $repoRoot 'installer\DualLink.iss')
     if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed.' }
 
     $releaseFiles = @(
-        (Join-Path $repoRoot "dist\DualLink-$version-Setup-x64.exe"),
+        (Join-Path $repoRoot "dist\DualLink-$displayVersion-Setup-x64.exe"),
         (Join-Path $publishDirectory 'DualLink.exe'),
         (Join-Path $publishDirectory 'DualLink.Watchdog.exe'),
         $sbomPath
@@ -57,4 +60,4 @@ if (-not $SkipInstaller) {
     $checksumLines | Set-Content -LiteralPath (Join-Path $repoRoot 'dist\SHA256SUMS.txt') -Encoding ascii
 }
 
-Write-Host "DualLink $version build complete: $repoRoot\dist"
+Write-Host "DualLink $displayVersion build complete: $repoRoot\dist"

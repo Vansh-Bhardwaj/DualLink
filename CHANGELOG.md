@@ -23,6 +23,7 @@ All notable DualLink changes are recorded here. Versions follow semantic version
 - Added bounded retry backoff after controller failures to avoid rapid filter-service churn, while allowing an explicit re-arm to retry immediately.
 - Corrected the active status when only Ethernet or only Wi-Fi is currently available, and surfaced restoration failures without crashing the UI event loop.
 - Ensured Exit still completes when foreground restoration fails so the independent watchdog can perform its recovery pass instead of leaving a half-closed window.
+- Made development installers, checksums, and SBOM metadata carry the exact preview identity while retaining a Windows-compatible numeric file version.
 
 ## 2.3.0-dev.2 - 2026-08-29
 

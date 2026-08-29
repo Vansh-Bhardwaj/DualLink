@@ -2,6 +2,9 @@
 #ifndef AppVersion
   #define AppVersion "2.0.0"
 #endif
+#ifndef NumericVersion
+  #define NumericVersion "2.0.0"
+#endif
 #define AppPublisher "DualLink"
 #define AppExeName "DualLink.exe"
 
@@ -28,9 +31,9 @@ WizardSizePercent=110
 CloseApplications=yes
 RestartApplications=no
 UninstallDisplayIcon={app}\{#AppExeName}
-VersionInfoVersion={#AppVersion}.0
+VersionInfoVersion={#NumericVersion}.0
 VersionInfoProductName={#AppName}
-VersionInfoProductVersion={#AppVersion}
+VersionInfoProductVersion={#NumericVersion}
 VersionInfoCompany={#AppPublisher}
 VersionInfoDescription=DualLink offline installer
 SetupIconFile=..\assets\DualLink.ico
