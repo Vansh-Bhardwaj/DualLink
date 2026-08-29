@@ -4,8 +4,10 @@ using System.Net.Sockets;
 using System.Text;
 
 var sources = new List<string>();
-var server = new TcpListener(IPAddress.Any, 18181);
+var credentials = new ProxyCredentials("duallink-test", "correct-horse-battery-staple");
+var server = new TcpListener(IPAddress.Any, 0);
 server.Start();
+var serverPort = ((IPEndPoint)server.LocalEndpoint).Port;
 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
 
 var serverTask = Task.Run(async () =>
@@ -22,16 +24,16 @@ var serverTask = Task.Run(async () =>
     }
 }, cts.Token);
 
-await using var proxy = new Socks5Balancer(18081, _ => { });
+await using var proxy = new Socks5Balancer(0, _ => { }, credentials);
 await proxy.StartAsync(new[] { ("127.0.0.1", 1), ("127.0.0.2", 1) });
 
-for (var i = 0; i < 4; i++) await SendRequestAsync(cts.Token);
+for (var i = 0; i < 4; i++) await SendRequestAsync(proxy.BoundPort, serverPort, cts.Token, credentials);
 
 if (!sources.Contains("127.0.0.1") || !sources.Contains("127.0.0.2"))
     throw new Exception("Weighted source rotation did not use both links: " + string.Join(", ", sources));
 
 proxy.UpdateSources(new[] { ("127.0.0.1", 0), ("127.0.0.2", 1) });
-for (var i = 0; i < 2; i++) await SendRequestAsync(cts.Token);
+for (var i = 0; i < 2; i++) await SendRequestAsync(proxy.BoundPort, serverPort, cts.Token, credentials);
 
 await serverTask;
 await proxy.StopAsync();
@@ -41,6 +43,76 @@ if (sources.TakeLast(2).Any(x => x != "127.0.0.2"))
     throw new Exception("Zero-weight route still received new connections: " + string.Join(", ", sources));
 
 Console.WriteLine("PASS: dual-link rotation and live zero-weight switching: " + string.Join(", ", sources));
+
+var authServer = new TcpListener(IPAddress.Loopback, 0);
+authServer.Start();
+var authServerPort = ((IPEndPoint)authServer.LocalEndpoint).Port;
+var authServerTask = Task.Run(async () =>
+{
+    using var accepted = await authServer.AcceptTcpClientAsync(cts.Token);
+    var stream = accepted.GetStream();
+    var buffer = new byte[128];
+    await stream.ReadAtLeastAsync(buffer, 1, cancellationToken: cts.Token);
+    await stream.WriteAsync(Encoding.ASCII.GetBytes("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"), cts.Token);
+}, cts.Token);
+await using var authProxy = new Socks5Balancer(0, _ => { }, credentials);
+await authProxy.StartAsync(new[] { ("127.0.0.1", 1) });
+
+using (var unauthenticated = new TcpClient())
+{
+    await unauthenticated.ConnectAsync(IPAddress.Loopback, authProxy.BoundPort, cts.Token);
+    var stream = unauthenticated.GetStream();
+    await stream.WriteAsync(new byte[] { 5, 1, 0 }, cts.Token);
+    var reply = new byte[2];
+    await stream.ReadExactlyAsync(reply, cts.Token);
+    if (reply[1] != 255) throw new Exception("Secure proxy accepted a client without credentials.");
+}
+
+using (var wrongPassword = new TcpClient())
+{
+    await wrongPassword.ConnectAsync(IPAddress.Loopback, authProxy.BoundPort, cts.Token);
+    var stream = wrongPassword.GetStream();
+    await stream.WriteAsync(new byte[] { 5, 1, 2 }, cts.Token);
+    var methodReply = new byte[2];
+    await stream.ReadExactlyAsync(methodReply, cts.Token);
+    if (methodReply[1] != 2) throw new Exception("Secure proxy did not require username/password authentication.");
+    await WriteCredentialsAsync(stream, new ProxyCredentials(credentials.Username, "wrong"), cts.Token);
+    var authReply = new byte[2];
+    await stream.ReadExactlyAsync(authReply, cts.Token);
+    if (authReply[1] == 0) throw new Exception("Secure proxy accepted an invalid password.");
+}
+
+await SendRequestAsync(authProxy.BoundPort, authServerPort, cts.Token, credentials);
+await authServerTask;
+await authProxy.StopAsync();
+authServer.Stop();
+Console.WriteLine("PASS: local SOCKS endpoint requires per-session credentials");
+
+var failoverServer = new TcpListener(IPAddress.Loopback, 0);
+failoverServer.Start();
+var failoverServerPort = ((IPEndPoint)failoverServer.LocalEndpoint).Port;
+var failoverServerTask = Task.Run(async () =>
+{
+    using var accepted = await failoverServer.AcceptTcpClientAsync(cts.Token);
+    var stream = accepted.GetStream();
+    var buffer = new byte[128];
+    await stream.ReadAtLeastAsync(buffer, 1, cancellationToken: cts.Token);
+    await stream.WriteAsync(Encoding.ASCII.GetBytes("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"), cts.Token);
+}, cts.Token);
+await using var failoverProxy = new Socks5Balancer(0, _ => { }, credentials);
+await failoverProxy.StartAsync(new[]
+{
+    new RouteDefinition("192.0.2.123", 1, true, "Unavailable primary"),
+    new RouteDefinition("127.0.0.1", 1, false, "Working backup")
+}, RoutingMode.Failover);
+await SendRequestAsync(failoverProxy.BoundPort, failoverServerPort, cts.Token, credentials);
+await failoverServerTask;
+var failedRoute = failoverProxy.RouteStatuses.Single(x => x.Address == "192.0.2.123");
+if (failedRoute.ConsecutiveFailures == 0 || failedRoute.IsHealthy)
+    throw new Exception("Failed primary route was not put into cooldown.");
+await failoverProxy.StopAsync();
+failoverServer.Stop();
+Console.WriteLine("PASS: failover quarantines an unavailable primary and uses the healthy backup");
 
 var filterRunning = false;
 var restartCount = 0;
@@ -88,16 +160,29 @@ if (friendlyLink.ToString() != "Phone hotspot" || friendlyLink.DetailText != "Wi
 
 Console.WriteLine("PASS: adapter dropdown uses friendly network labels");
 
-async Task SendRequestAsync(CancellationToken token)
+var matchers = new AppProfile
+{
+    Name = "Test", Subtitle = "Test", Accent = "#ffffff", Processes = new() { "test.exe" },
+    ExecutablePaths = new() { @"C:\Apps\Test\test.exe" }
+}.ProcessMatchers.ToArray();
+if (!matchers.Contains(@"C:\Apps\Test\test.exe") || !matchers.Contains("test.exe"))
+    throw new Exception("Full executable path matching regressed.");
+Console.WriteLine("PASS: custom targets preserve full executable paths");
+
+async Task SendRequestAsync(int proxyPort, int targetPort, CancellationToken token, ProxyCredentials proxyCredentials)
 {
     using var client = new TcpClient();
-    await client.ConnectAsync(IPAddress.Loopback, 18081, token);
+    await client.ConnectAsync(IPAddress.Loopback, proxyPort, token);
     var stream = client.GetStream();
-    await stream.WriteAsync(new byte[] { 5, 1, 0 }, token);
+    await stream.WriteAsync(new byte[] { 5, 1, 2 }, token);
     var reply = new byte[2];
     await stream.ReadExactlyAsync(reply, token);
-    if (reply[1] != 0) throw new Exception("SOCKS authentication failed");
-    await stream.WriteAsync(new byte[] { 5, 1, 0, 1, 127, 0, 0, 1, 71, 5 }, token);
+    if (reply[1] != 2) throw new Exception("SOCKS method negotiation failed");
+    await WriteCredentialsAsync(stream, proxyCredentials, token);
+    var authReply = new byte[2];
+    await stream.ReadExactlyAsync(authReply, token);
+    if (authReply[1] != 0) throw new Exception("SOCKS authentication failed");
+    await stream.WriteAsync(new byte[] { 5, 1, 0, 1, 127, 0, 0, 1, (byte)(targetPort >> 8), (byte)targetPort }, token);
     var connectReply = new byte[10];
     await stream.ReadExactlyAsync(connectReply, token);
     if (connectReply[1] != 0) throw new Exception("SOCKS CONNECT failed");
@@ -106,4 +191,17 @@ async Task SendRequestAsync(CancellationToken token)
     var count = await stream.ReadAsync(response, token);
     if (!Encoding.ASCII.GetString(response, 0, count).Contains("200 OK"))
         throw new Exception("Proxy data relay failed");
+}
+
+async Task WriteCredentialsAsync(Stream stream, ProxyCredentials value, CancellationToken token)
+{
+    var username = Encoding.UTF8.GetBytes(value.Username);
+    var password = Encoding.UTF8.GetBytes(value.Password);
+    var request = new byte[3 + username.Length + password.Length];
+    request[0] = 1;
+    request[1] = (byte)username.Length;
+    username.CopyTo(request, 2);
+    request[2 + username.Length] = (byte)password.Length;
+    password.CopyTo(request, 3 + username.Length);
+    await stream.WriteAsync(request, token);
 }

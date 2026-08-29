@@ -39,10 +39,7 @@
           </Grid.ColumnDefinitions>
           <StackPanel Orientation="Horizontal" Margin="16,0,0,0" VerticalAlignment="Center">
             <Border Width="26" Height="26" CornerRadius="7" Background="{StaticResource AccentSoftBrush}">
-              <Grid>
-                <Path Data="M 7,5 L 7,21 M 12,9 L 12,17 M 17,6 L 17,20"
-                      Stroke="{StaticResource AccentBrush}" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
-              </Grid>
+              <Image Source="pack://application:,,,/Assets/DualLink.ico" Width="24" Height="24" Stretch="Uniform" />
             </Border>
             <TextBlock Text="DualLink" FontSize="13" FontWeight="Medium"
                        Margin="9,0,0,0" VerticalAlignment="Center" />
@@ -94,6 +91,8 @@
               <RowDefinition Height="1" />
               <RowDefinition Height="Auto" />
               <RowDefinition Height="16" />
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="14" />
               <RowDefinition Height="Auto" />
               <RowDefinition Height="*" />
               <RowDefinition Height="Auto" />
@@ -185,6 +184,16 @@
             <Grid Grid.Row="8">
               <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="112" /></Grid.ColumnDefinitions>
               <StackPanel>
+                <TextBlock Text="Connection behavior" FontWeight="Medium" />
+                <TextBlock Text="{Binding RoutingModeDescription}" Style="{StaticResource CaptionText}" Margin="0,2,12,0" TextWrapping="Wrap" />
+              </StackPanel>
+              <ComboBox Grid.Column="1" ItemsSource="{Binding RoutingModeOptions}" SelectedItem="{Binding SelectedRoutingModeOption, Mode=TwoWay}"
+                        Height="32" VerticalAlignment="Center" />
+            </Grid>
+
+            <Grid Grid.Row="10">
+              <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="112" /></Grid.ColumnDefinitions>
+              <StackPanel>
                 <TextBlock Text="Download speed limit" FontWeight="Medium" />
                 <TextBlock Text="Leave bandwidth for video, calls, or browsing" Style="{StaticResource CaptionText}" Margin="0,2,12,0" TextWrapping="Wrap" />
               </StackPanel>
@@ -192,7 +201,7 @@
                         Height="32" VerticalAlignment="Center" />
             </Grid>
 
-            <TextBlock Grid.Row="10" Text="Shares decide where new downloads begin. Turning a route off never closes an existing download."
+            <TextBlock Grid.Row="12" Text="Turning a connection off only affects new sessions. Active downloads stay connected."
                        Style="{StaticResource CaptionText}" TextWrapping="Wrap" LineHeight="16" />
           </Grid>
         </Border>
@@ -289,7 +298,7 @@
               <Button Content="×" HorizontalAlignment="Right" VerticalAlignment="Top" Style="{StaticResource IconButton}" Click="CloseDrawer_Click" />
             </Grid>
             <Grid Grid.Row="2">
-              <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
+              <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
               <TextBlock Text="Network filter" Foreground="{StaticResource SecondaryBrush}" />
               <TextBlock Text="{Binding PrerequisiteText}" HorizontalAlignment="Right" FontWeight="SemiBold" />
               <TextBlock Grid.Row="1" Text="Ethernet" Foreground="{StaticResource SecondaryBrush}" Margin="0,10,0,0" />
@@ -298,6 +307,8 @@
               <TextBlock Grid.Row="2" Text="{Binding SelectedWifi.DiagnosticName}" HorizontalAlignment="Right" FontSize="10" Margin="0,10,0,0" />
               <TextBlock Grid.Row="3" Text="Recovery" Foreground="{StaticResource SecondaryBrush}" Margin="0,10,0,0" />
               <TextBlock Grid.Row="3" Text="Watching" HorizontalAlignment="Right" Foreground="{StaticResource SuccessBrush}" Margin="0,10,0,0" />
+              <TextBlock Grid.Row="4" Text="Route health" Foreground="{StaticResource SecondaryBrush}" Margin="0,10,0,0" />
+              <TextBlock Grid.Row="4" Text="{Binding RouteHealthText}" HorizontalAlignment="Right" FontSize="10" Margin="0,10,0,0" />
             </Grid>
             <Border Grid.Row="4" Background="{StaticResource CanvasBrush}" CornerRadius="8" Padding="12">
               <ScrollViewer VerticalScrollBarVisibility="Auto">

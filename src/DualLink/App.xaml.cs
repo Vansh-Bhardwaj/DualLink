@@ -55,6 +55,21 @@ public partial class App : System.Windows.Application
             return;
         }
 
+        if (e.Args.Length >= 1 && e.Args[0].Equals("--tray-preview", StringComparison.OrdinalIgnoreCase))
+        {
+            base.OnStartup(e);
+            ShutdownMode = ShutdownMode.OnMainWindowClose;
+            var preview = new MainWindow(previewMode: true);
+            preview.Loaded += (_, _) => preview.Dispatcher.BeginInvoke(async () =>
+            {
+                await Task.Delay(3000);
+                preview.ShowTrayPreview();
+            });
+            MainWindow = preview;
+            preview.Show();
+            return;
+        }
+
         if (e.Args.Length >= 2 && e.Args[0].Equals("--watchdog", StringComparison.OrdinalIgnoreCase))
         {
             ShutdownMode = ShutdownMode.OnExplicitShutdown;

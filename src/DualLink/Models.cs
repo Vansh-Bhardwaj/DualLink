@@ -13,6 +13,7 @@ public sealed class AppProfile : INotifyPropertyChanged
     public required string Subtitle { get; init; }
     public required string Accent { get; init; }
     public required List<string> Processes { get; init; }
+    public List<string> ExecutablePaths { get; init; } = new();
     public bool IsCustom { get; init; }
     public bool IsSystemDetected { get; init; }
 
@@ -39,6 +40,7 @@ public sealed class AppProfile : INotifyPropertyChanged
 
     [JsonIgnore] public string RunState => IsRunning ? "Running" : "Idle";
     [JsonIgnore] public string ProcessSummary => string.Join(" · ", Processes.Select(Path.GetFileNameWithoutExtension));
+    [JsonIgnore] public IEnumerable<string> ProcessMatchers => ExecutablePaths.Concat(Processes);
 
     public event PropertyChangedEventHandler? PropertyChanged;
     private void OnPropertyChanged([CallerMemberName] string? name = null) =>
@@ -103,6 +105,7 @@ public sealed class UserSettings
     public int WifiWeight { get; set; } = 5;
     public bool CloseToTray { get; set; } = true;
     public int DownloadLimitMbps { get; set; }
+    public RoutingMode RoutingMode { get; set; } = RoutingMode.Smart;
     public List<string> SelectedProfiles { get; set; } = new();
     public List<AppProfile> CustomProfiles { get; set; } = new();
 }

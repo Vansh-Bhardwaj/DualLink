@@ -20,5 +20,6 @@
   <ItemGroup>
     <Page Remove="MainWindow.xaml" />
     <Resource Include="Assets\Fonts\*.ttf" />
+    <Resource Include="..\..\assets\DualLink.ico" Link="Assets\DualLink.ico" />
   </ItemGroup>
 </Project>

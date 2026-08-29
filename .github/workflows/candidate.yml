@@ -1,0 +1,35 @@
+name: Build candidate
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  candidate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build verified candidate
+        shell: pwsh
+        run: ./build.ps1 -SkipInstaller
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            dist/publish/DualLink.exe
+            dist/publish/DualLink.Watchdog.exe
+            dist/DualLink.spdx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DualLink-${{ github.sha }}
+          path: |
+            dist/publish/DualLink.exe
+            dist/publish/DualLink.Watchdog.exe
+            dist/DualLink.spdx.json
+          if-no-files-found: error

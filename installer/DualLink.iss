@@ -42,6 +42,7 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 
 [Files]
 Source: "..\dist\publish\DualLink.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\dist\publish\DualLink.Watchdog.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "prereqs\VC_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "prereqs\Windows.Packet.Filter.3.6.2.1.x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "prereqs\ProxiFyre-2.5.0-win-x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall

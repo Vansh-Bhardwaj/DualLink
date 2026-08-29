@@ -5,13 +5,19 @@
 
 DualLink applies two independent internet links to new TCP connections made by selected Windows applications. It is designed for launchers and browsers that open several parallel download connections.
 
-![DualLink application overview](assets/ui-preview.png)
+![DualLink 2.3 application overview](docs/screenshots/duallink-2.3-dev.png)
+
+<p align="center">
+  <img src="docs/images/icon-preview.png" width="128" alt="DualLink confluence app icon: two network paths merging into one" />
+</p>
+
+The original confluence mark depicts two network paths becoming one flow. The Windows `.ico` contains hand-rendered 16, 20, 24, 32, 40, 48, 64, 96, 128, and 256 px frames, so the shell can choose an exact size instead of enlarging a small bitmap.
 
 ## How it works
 
 ![Selected applications pass through DualLink, which distributes new connections between Ethernet and Wi-Fi](docs/images/how-it-works.svg)
 
-DualLink leaves normal Windows routing alone for every application you have not selected. For selected applications, each new TCP connection is assigned to Ethernet or Wi-Fi according to the shares you choose.
+DualLink leaves normal Windows routing alone for every application you have not selected. For selected applications, each new TCP connection is assigned to Ethernet or Wi-Fi. **Smart** favors the freer healthy link, **Balanced** follows your shares, and **Backup** prefers Ethernet until it becomes unavailable.
 
 ## Everyday use
 
@@ -20,9 +26,9 @@ DualLink leaves normal Windows routing alone for every application you have not 
 3. Choose the applications and select **Enable boost**.
 4. Use **Use this only** or lower a route to **Off** when you want new connections on one link. Existing connections are left alone.
 5. Optionally choose a download limit to leave bandwidth for streaming, calls, or browsing. The limit changes live.
-6. Close the window to keep DualLink in the notification area. Use **Exit and restore** to return the filter to its previous configuration.
+6. Close the window to keep DualLink in the notification area. Hover for live combined speed and session count, or right-click for the compact DualLink status menu. Use **Exit and restore** to return the filter to its previous configuration.
 
-The Details drawer contains IP addresses, driver state, session count, and logs. The default browser is detected from Windows settings and added automatically.
+The Details drawer contains IP addresses, driver state, route health, session count, and logs. The default browser is detected from Windows settings and added automatically. Custom applications are matched by their full executable path so another program with the same filename is not selected accidentally.
 
 <details>
 <summary>Settings and diagnostics stay out of the way until requested</summary>
@@ -47,7 +53,7 @@ End users do not need .NET, ProxiFyre, Windows Packet Filter, or the Visual C++ 
 
 ## Safety model
 
-DualLink only filters processes the user selects. Disarming or exiting restores the previous ProxiFyre configuration. A watchdog also restores the configuration if the UI process exits unexpectedly. A weight of zero affects new connections only.
+DualLink only filters processes the user selects. Its local proxy listens on loopback, uses fresh random credentials for each run, and is not exposed to the LAN. Disarming or exiting restores the previous ProxiFyre configuration. A small independent watchdog also restores the configuration if the UI process exits unexpectedly. Recovery paths are constrained to DualLink's own state and the expected ProxiFyre config. A weight of zero affects new connections only.
 
 ## Limits
 

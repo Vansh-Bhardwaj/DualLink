@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-labelledby="title desc">
+  <title id="title">DualLink confluence mark</title>
+  <desc id="desc">Two rounded network paths merge into one outgoing path.</desc>
+  <defs>
+    <linearGradient id="bg" x1="7" y1="4" x2="41" y2="44" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#161D30"/><stop offset="1" stop-color="#0D111E"/>
+    </linearGradient>
+    <linearGradient id="out" x1="25" y1="24" x2="39" y2="24" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E6F6FF"/><stop offset="1" stop-color="#85DEFF"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="44" height="44" rx="10" fill="url(#bg)" stroke="#516077" stroke-opacity=".55" stroke-width=".75"/>
+  <path d="M10 14C19 14 19 24 27 24" fill="none" stroke="#48CAFF" stroke-width="5.5" stroke-linecap="round"/>
+  <path d="M10 34C19 34 19 24 27 24" fill="none" stroke="#FFB145" stroke-width="5.5" stroke-linecap="round"/>
+  <path d="M27 24H38" fill="none" stroke="url(#out)" stroke-width="5.5" stroke-linecap="round"/>
+  <circle cx="27" cy="24" r="2.25" fill="#F1F8FF"/>
+</svg>

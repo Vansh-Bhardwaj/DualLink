@@ -7,16 +7,22 @@ $version = (Get-Content -LiteralPath (Join-Path $repoRoot 'VERSION') -Raw).Trim(
 $appProject = Join-Path $repoRoot 'src\DualLink\DualLink.csproj'
 $testProject = Join-Path $repoRoot 'tests\DualLink.Tests\DualLink.Tests.csproj'
 $publishDirectory = Join-Path $repoRoot 'dist\publish'
+$watchdogProject = Join-Path $repoRoot 'src\DualLink.Watchdog\DualLink.Watchdog.csproj'
+$watchdogPublishDirectory = Join-Path $repoRoot 'dist\watchdog'
 $iconPath = Join-Path $repoRoot 'assets\DualLink.ico'
+$iconPreviewPath = Join-Path $repoRoot 'docs\images\icon-preview.png'
 
 dotnet restore $appProject --configfile (Join-Path $repoRoot 'NuGet.Config')
 if ($LASTEXITCODE -ne 0) { throw 'App restore failed.' }
-dotnet run --project (Join-Path $repoRoot 'tools\IconMaker\IconMaker.csproj') -c Release -- $iconPath
+dotnet run --project (Join-Path $repoRoot 'tools\IconMaker\IconMaker.csproj') -c Release -- $iconPath $iconPreviewPath
 if ($LASTEXITCODE -ne 0) { throw 'Icon generation failed.' }
 dotnet run --project $testProject -c Release
 if ($LASTEXITCODE -ne 0) { throw 'Integration tests failed.' }
 dotnet publish $appProject -c Release -p:PublishProfile=win-x64 -p:Version=$version --output $publishDirectory
 if ($LASTEXITCODE -ne 0) { throw 'Self-contained publish failed.' }
+dotnet publish $watchdogProject -c Release --output $watchdogPublishDirectory
+if ($LASTEXITCODE -ne 0) { throw 'Watchdog publish failed.' }
+Copy-Item -LiteralPath (Join-Path $watchdogPublishDirectory 'DualLink.Watchdog.exe') -Destination (Join-Path $publishDirectory 'DualLink.Watchdog.exe') -Force
 
 $sbomPath = Join-Path $repoRoot 'dist\DualLink.spdx.json'
 & (Join-Path $repoRoot 'tools\Generate-Sbom.ps1') -Version $version -ApplicationPath (Join-Path $publishDirectory 'DualLink.exe') -OutputPath $sbomPath
@@ -34,6 +40,7 @@ if (-not $SkipInstaller) {
     $releaseFiles = @(
         (Join-Path $repoRoot "dist\DualLink-$version-Setup-x64.exe"),
         (Join-Path $publishDirectory 'DualLink.exe'),
+        (Join-Path $publishDirectory 'DualLink.Watchdog.exe'),
         $sbomPath
     )
     $checksumLines = foreach ($file in $releaseFiles) {

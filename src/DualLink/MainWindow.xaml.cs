@@ -18,11 +18,11 @@ namespace DualLink;
 
 public partial class MainWindow : Window, INotifyPropertyChanged
 {
-    private const int SocksPort = 18080;
     private readonly string _settingsDirectory;
     private readonly string _settingsPath;
     private readonly ProxiFyreManager _proxiFyre;
     private readonly Socks5Balancer _balancer;
+    private readonly ProxyCredentials _proxyCredentials;
     private readonly BoostHealthMonitor _healthMonitor;
     private readonly DispatcherTimer _timer;
     private readonly bool _previewMode;
@@ -32,6 +32,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private LinkInfo? _selectedEthernet;
     private LinkInfo? _selectedWifi;
     private BandwidthOption? _selectedBandwidthOption;
+    private RoutingModeOption? _selectedRoutingModeOption;
     private bool _autoBoost = true;
     private bool _armed;
     private bool _boosting;
@@ -43,6 +44,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private string _statusText = "Ready";
     private Brush _statusColor = new SolidColorBrush(Color.FromRgb(140, 150, 165));
     private string _prerequisiteText = "Checking";
+    private DateTime _lastRateUpdateUtc = DateTime.UtcNow;
+    private DateTime _nextProcessScanUtc = DateTime.MinValue;
 
     public MainWindow(bool previewMode = false)
     {
@@ -54,14 +57,16 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _settingsPath = Path.Combine(_settingsDirectory, "settings.json");
         Directory.CreateDirectory(_settingsDirectory);
         _proxiFyre = new ProxiFyreManager(Log);
-        _balancer = new Socks5Balancer(SocksPort, Log);
+        _proxyCredentials = ProxyCredentials.Create();
+        _balancer = new Socks5Balancer(0, Log, _proxyCredentials);
         _healthMonitor = new BoostHealthMonitor(
             () => _balancer.IsRunning,
             _proxiFyre.IsServiceRunningAsync,
             _proxiFyre.EnsureServiceRunningAsync);
 
         LoadProfilesAndSettings();
-        RefreshAdapters();
+        if (_previewMode) LoadPreviewAdapters();
+        else RefreshAdapters();
 
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _timer.Tick += Timer_Tick;
@@ -79,7 +84,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         else
         {
             PrerequisiteText = "Ready";
-            UpdateRunningProfiles();
+            foreach (var profile in Profiles)
+                profile.IsRunning = profile.Name is "Default browser" or "Steam";
             StatusText = "Preview";
             StatusColor = new SolidColorBrush(Color.FromRgb(69, 198, 255));
         }
@@ -99,6 +105,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         new BandwidthOption { Mbps = 100, DisplayName = "100 Mbps" },
         new BandwidthOption { Mbps = 200, DisplayName = "200 Mbps" },
         new BandwidthOption { Mbps = 300, DisplayName = "300 Mbps" }
+    };
+    public ObservableCollection<RoutingModeOption> RoutingModeOptions { get; } = new()
+    {
+        new RoutingModeOption { Mode = RoutingMode.Smart, DisplayName = "Smart", Description = "Uses the freer healthy connection" },
+        new RoutingModeOption { Mode = RoutingMode.Balanced, DisplayName = "Balanced", Description = "Follows your connection shares" },
+        new RoutingModeOption { Mode = RoutingMode.Failover, DisplayName = "Backup", Description = "Ethernet first, Wi-Fi if it fails" }
     };
 
     public LinkInfo? SelectedEthernet
@@ -138,12 +150,38 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
     }
 
+    public RoutingModeOption? SelectedRoutingModeOption
+    {
+        get => _selectedRoutingModeOption;
+        set
+        {
+            if (_selectedRoutingModeOption == value) return;
+            _selectedRoutingModeOption = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(RoutingModeDescription));
+            ApplyRouteMix();
+        }
+    }
+
+    public string RoutingModeDescription => SelectedRoutingModeOption?.Description ?? string.Empty;
+
     public string StatusText { get => _statusText; private set { _statusText = value; OnPropertyChanged(); } }
     public Brush StatusColor { get => _statusColor; private set { _statusColor = value; OnPropertyChanged(); } }
     public string PrerequisiteText { get => _prerequisiteText; private set { _prerequisiteText = value; OnPropertyChanged(); } }
     public int ActiveConnections => _balancer.ActiveConnections;
     public string CombinedSpeedText => $"{(SelectedEthernet?.DownloadMbps ?? 0) + (SelectedWifi?.DownloadMbps ?? 0):0.0} Mbps";
     public string CombinedUploadSpeedText => $"{(SelectedEthernet?.UploadMbps ?? 0) + (SelectedWifi?.UploadMbps ?? 0):0.0} Mbps";
+    public string RouteHealthText
+    {
+        get
+        {
+            if (!_balancer.IsRunning) return "Idle";
+            var unavailable = _balancer.RouteStatuses.Where(x => !x.IsHealthy).Select(x => x.Name).ToArray();
+            return unavailable.Length == 0
+                ? $"{SelectedRoutingModeOption?.DisplayName ?? "Smart"} · healthy"
+                : $"Using backup · {string.Join(", ", unavailable)} unavailable";
+        }
+    }
     public string VersionText => $"Version {Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "2.0.0"}";
 
     private void LoadProfilesAndSettings()
@@ -151,7 +189,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _loadingSettings = true;
         try
         {
-            if (File.Exists(_settingsPath))
+            if (!_previewMode && File.Exists(_settingsPath))
                 _settings = JsonSerializer.Deserialize<UserSettings>(File.ReadAllText(_settingsPath)) ?? new UserSettings();
         }
         catch { _settings = new UserSettings(); }
@@ -160,6 +198,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         CloseToTray = _settings.CloseToTray;
         _armed = _settings.Armed;
         SelectedBandwidthOption = BandwidthOptions.FirstOrDefault(x => x.Mbps == _settings.DownloadLimitMbps) ?? BandwidthOptions[0];
+        SelectedRoutingModeOption = RoutingModeOptions.FirstOrDefault(x => x.Mode == _settings.RoutingMode) ?? RoutingModeOptions[0];
         var defaults = new List<AppProfile>
         {
             new AppProfile { Name="Epic Games", Subtitle="Epic and EOS game downloads", Accent="#49B8FF", Processes=new(){"EpicGamesLauncher.exe","EpicOnlineServicesInstallHelper.exe"} },
@@ -177,12 +216,15 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 Subtitle = browser.DisplayName,
                 Accent = "#A78BFA",
                 Processes = new() { browser.ProcessName },
+                ExecutablePaths = new() { browser.ExecutablePath },
                 IsSystemDetected = true
             });
         }
         foreach (var profile in defaults.Concat(_settings.CustomProfiles ?? new List<AppProfile>()))
         {
-            profile.IsSelected = _settings.SelectedProfiles.Contains(profile.Name, StringComparer.OrdinalIgnoreCase);
+            profile.IsSelected = _previewMode
+                ? profile.Name is "Default browser" or "Steam"
+                : _settings.SelectedProfiles.Contains(profile.Name, StringComparer.OrdinalIgnoreCase);
             Profiles.Add(profile);
         }
         _loadingSettings = false;
@@ -205,6 +247,29 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         Log($"Detected {EthernetLinks.Count} Ethernet and {WifiLinks.Count} Wi-Fi internet link(s)");
     }
 
+    private void LoadPreviewAdapters()
+    {
+        EthernetLinks.Clear();
+        WifiLinks.Clear();
+        AutoBoost = true;
+        var ethernet = new LinkInfo
+        {
+            Id = "preview-ethernet", Name = "Ethernet", Description = "Wired connection",
+            Address = "192.0.2.10", Gateway = "192.0.2.1", Kind = "Ethernet", DownloadMbps = 126.4, UploadMbps = 18.2,
+            Weight = 2
+        };
+        var wifi = new LinkInfo
+        {
+            Id = "preview-wifi", Name = "Wi-Fi", Description = "Wireless connection", NetworkName = "Mobile hotspot",
+            Address = "192.0.2.20", Gateway = "192.0.2.1", Kind = "Wi-Fi", DownloadMbps = 268.7, UploadMbps = 49.1,
+            Weight = 5
+        };
+        EthernetLinks.Add(ethernet);
+        WifiLinks.Add(wifi);
+        SelectedEthernet = ethernet;
+        SelectedWifi = wifi;
+    }
+
     private async Task RefreshPrerequisitesAsync()
     {
         var check = await _proxiFyre.CheckPrerequisitesAsync();
@@ -217,11 +282,19 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (!await _controllerGate.WaitAsync(0)) return;
         try
         {
-            NetworkDiscovery.UpdateRates(EthernetLinks.Concat(WifiLinks), 1);
+            var now = DateTime.UtcNow;
+            var elapsedSeconds = Math.Max(0.2, (now - _lastRateUpdateUtc).TotalSeconds);
+            _lastRateUpdateUtc = now;
+            NetworkDiscovery.UpdateRates(EthernetLinks.Concat(WifiLinks), elapsedSeconds);
             OnPropertyChanged(nameof(ActiveConnections));
             OnPropertyChanged(nameof(CombinedSpeedText));
             OnPropertyChanged(nameof(CombinedUploadSpeedText));
-            UpdateRunningProfiles();
+            OnPropertyChanged(nameof(RouteHealthText));
+            if (now >= _nextProcessScanUtc)
+            {
+                UpdateRunningProfiles();
+                _nextProcessScanUtc = now.AddSeconds(_boosting || IsVisible ? 2 : 8);
+            }
 
             var selected = Profiles.Where(x => x.IsSelected).ToList();
             var shouldBoost = _armed && selected.Count > 0 && (!AutoBoost || selected.Any(x => x.IsRunning));
@@ -236,8 +309,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             {
                 StatusText = "Waiting";
                 StatusColor = new SolidColorBrush(Color.FromRgb(255, 184, 77));
-                _tray?.Update(true, false);
+                UpdateTray();
             }
+            _timer.Interval = TimeSpan.FromSeconds(IsVisible || _boosting ? 1 : 5);
+            UpdateTray();
         }
         catch (Exception ex)
         {
@@ -253,18 +328,23 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             StatusText = "Recovering…";
             StatusColor = new SolidColorBrush(Color.FromRgb(255, 184, 77));
-            _tray?.Update(true, false);
+            UpdateTray();
         }
         if (!await _healthMonitor.CheckAndRecoverAsync()) return;
         UpdateActiveRouteStatus();
-        _tray?.Update(true, true);
+        UpdateTray();
         Log("Filter service recovered");
     }
 
     private void UpdateRunningProfiles()
     {
         HashSet<string> names;
-        try { names = Process.GetProcesses().Select(x => x.ProcessName + ".exe").ToHashSet(StringComparer.OrdinalIgnoreCase); }
+        try
+        {
+            var processes = Process.GetProcesses();
+            try { names = processes.Select(x => x.ProcessName + ".exe").ToHashSet(StringComparer.OrdinalIgnoreCase); }
+            finally { foreach (var process in processes) process.Dispose(); }
+        }
         catch { return; }
         foreach (var profile in Profiles)
             profile.IsRunning = profile.Processes.Any(names.Contains);
@@ -286,16 +366,16 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         StatusText = "Starting…";
         await _balancer.StartAsync(new[]
         {
-            (SelectedEthernet.Address, SelectedEthernet.Weight),
-            (SelectedWifi.Address, SelectedWifi.Weight)
-        });
+            new RouteDefinition(SelectedEthernet.Address, SelectedEthernet.Weight, true, "Ethernet"),
+            new RouteDefinition(SelectedWifi.Address, SelectedWifi.Weight, false, "Wi-Fi")
+        }, SelectedRoutingModeOption?.Mode ?? RoutingMode.Smart);
         try
         {
-            var processNames = selected.SelectMany(x => x.Processes).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-            await _proxiFyre.StartAsync(processNames, SocksPort);
+            var processMatchers = selected.SelectMany(x => x.ProcessMatchers).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            await _proxiFyre.StartAsync(processMatchers, _balancer.BoundPort, _proxyCredentials);
             _boosting = true;
             UpdateActiveRouteStatus();
-            _tray?.Update(true, true);
+            UpdateTray();
             Log($"Boost active for {string.Join(", ", selected.Select(x => x.Name))}");
         }
         catch
@@ -317,17 +397,18 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
         StatusText = _armed ? "Waiting" : "Ready";
         StatusColor = new SolidColorBrush(_armed ? Color.FromRgb(255, 184, 77) : Color.FromRgb(140, 150, 165));
-        _tray?.Update(_armed, false);
+        UpdateTray();
     }
 
     private void StartWatchdog()
     {
-        var executable = Environment.ProcessPath;
+        var helper = Path.Combine(AppContext.BaseDirectory, "DualLink.Watchdog.exe");
+        var executable = File.Exists(helper) ? helper : Environment.ProcessPath;
         if (string.IsNullOrWhiteSpace(executable)) return;
         Process.Start(new ProcessStartInfo
         {
             FileName = executable,
-            Arguments = $"--watchdog {Environment.ProcessId}",
+            Arguments = File.Exists(helper) ? Environment.ProcessId.ToString() : $"--watchdog {Environment.ProcessId}",
             UseShellExecute = false,
             CreateNoWindow = true
         });
@@ -335,7 +416,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void SaveSettings()
     {
-        if (!IsInitialized || _loadingSettings) return;
+        if (!IsInitialized || _loadingSettings || _previewMode) return;
         try
         {
             _settings.AutoBoost = AutoBoost;
@@ -346,6 +427,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             _settings.WifiWeight = SelectedWifi?.Weight ?? 5;
             _settings.CloseToTray = CloseToTray;
             _settings.DownloadLimitMbps = SelectedBandwidthOption?.Mbps ?? 0;
+            _settings.RoutingMode = SelectedRoutingModeOption?.Mode ?? RoutingMode.Smart;
             _settings.SelectedProfiles = Profiles.Where(x => x.IsSelected).Select(x => x.Name).ToList();
             _settings.CustomProfiles = Profiles.Where(x => x.IsCustom).ToList();
             File.WriteAllText(_settingsPath, JsonSerializer.Serialize(_settings, new JsonSerializerOptions { WriteIndented = true }));
@@ -368,7 +450,18 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         BoostButton.Background = new SolidColorBrush(_armed ? Color.FromRgb(72, 73, 82) : Color.FromRgb(125, 143, 255));
         BoostButton.BorderBrush = new SolidColorBrush(_armed ? Color.FromRgb(92, 93, 104) : Color.FromRgb(125, 143, 255));
         BoostButton.Foreground = new SolidColorBrush(_armed ? Color.FromRgb(245, 245, 247) : Color.FromRgb(16, 17, 22));
-        _tray?.Update(_armed, _boosting);
+        UpdateTray();
+    }
+
+    private void UpdateTray()
+    {
+        _tray?.Update(new TraySnapshot(
+            _armed,
+            _boosting,
+            (SelectedEthernet?.DownloadMbps ?? 0) + (SelectedWifi?.DownloadMbps ?? 0),
+            (SelectedEthernet?.UploadMbps ?? 0) + (SelectedWifi?.UploadMbps ?? 0),
+            _balancer.ActiveConnections,
+            SelectedRoutingModeOption?.DisplayName ?? "Smart"));
     }
 
     private void TitleBar_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
@@ -470,9 +563,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (!_balancer.IsRunning || SelectedEthernet is null || SelectedWifi is null) return;
         _balancer.UpdateSources(new[]
         {
-            (SelectedEthernet.Address, SelectedEthernet.Weight),
-            (SelectedWifi.Address, SelectedWifi.Weight)
-        });
+            new RouteDefinition(SelectedEthernet.Address, SelectedEthernet.Weight, true, "Ethernet"),
+            new RouteDefinition(SelectedWifi.Address, SelectedWifi.Weight, false, "Wi-Fi")
+        }, SelectedRoutingModeOption?.Mode ?? RoutingMode.Smart);
         UpdateActiveRouteStatus();
     }
 
@@ -480,6 +573,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         StatusText = SelectedEthernet?.Weight == 0 ? "Wi-Fi only" : SelectedWifi?.Weight == 0 ? "Ethernet only" : "Boosting";
         StatusColor = new SolidColorBrush(Color.FromRgb(85, 230, 165));
+        OnPropertyChanged(nameof(RouteHealthText));
     }
 
     private void Details_Click(object sender, RoutedEventArgs e)
@@ -496,6 +590,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     public void ShowSettingsPreview() => SettingsDrawer.Visibility = Visibility.Visible;
     public void ShowNetworkPickerPreview() => WifiAdapterPicker.IsDropDownOpen = true;
+    public void ShowTrayPreview()
+    {
+        _tray ??= new TrayManager(() => { }, () => { }, () => { });
+        _tray.Update(new TraySnapshot(true, true, 395.1, 67.3, 27, "Smart"));
+        _tray.ShowMenuForPreview();
+    }
 
     private void CloseDrawer_Click(object sender, RoutedEventArgs e)
     {
@@ -532,6 +632,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             Subtitle = "Custom application",
             Accent = "#B6C2D1",
             Processes = new List<string> { processName },
+            ExecutablePaths = new List<string> { dialog.FileName },
             IsCustom = true,
             IsSelected = true
         };
@@ -581,6 +682,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         if (_previewMode)
         {
+            _tray?.Dispose();
+            _tray = null;
             _allowClose = true;
             return;
         }

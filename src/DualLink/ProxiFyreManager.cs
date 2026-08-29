@@ -38,7 +38,7 @@ public sealed class ProxiFyreManager
         return (true, "Driver and application filter are ready");
     }
 
-    public async Task StartAsync(IReadOnlyCollection<string> processNames, int socksPort)
+    public async Task StartAsync(IReadOnlyCollection<string> processMatchers, int socksPort, ProxyCredentials credentials)
     {
         if (File.Exists(_sessionPath)) await RestoreAsync();
         var prerequisite = await CheckPrerequisitesAsync();
@@ -58,7 +58,7 @@ public sealed class ProxiFyreManager
             ConfigPath = ConfigPath,
             BackupPath = _backupPath
         };
-        await File.WriteAllTextAsync(_sessionPath, JsonSerializer.Serialize(state));
+        await WriteTextAtomicallyAsync(_sessionPath, JsonSerializer.Serialize(state));
 
         var config = new
         {
@@ -68,18 +68,20 @@ public sealed class ProxiFyreManager
             {
                 new
                 {
-                    appNames = processNames.Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
+                    appNames = processMatchers.Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
                     socks5ProxyEndpoint = $"127.0.0.1:{socksPort}",
+                    username = credentials.Username,
+                    password = credentials.Password,
                     supportedProtocols = new[] { "TCP" }
                 }
             }
         };
-        await File.WriteAllTextAsync(ConfigPath, JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true }), new UTF8Encoding(false));
+        await WriteTextAtomicallyAsync(ConfigPath, JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true }));
 
         // Remove the one-off route used while DualLink was being developed.
         await RunProcessAsync("route.exe", "delete 199.232.209.133", false);
         await StartServiceAsync();
-        _log($"Filtering {processNames.Count} selected process names");
+        _log($"Filtering {processMatchers.Count} application matchers");
     }
 
     public async Task RestoreAsync()
@@ -92,6 +94,12 @@ public sealed class ProxiFyreManager
         BoostSessionState? state = null;
         try { state = JsonSerializer.Deserialize<BoostSessionState>(await File.ReadAllTextAsync(_sessionPath)); }
         catch { }
+
+        if (state is not null && !IsExpectedState(state))
+        {
+            File.Delete(_sessionPath);
+            throw new InvalidOperationException("The recovery state was invalid and has been discarded.");
+        }
 
         await StopServiceAsync(ignoreErrors: true);
         if (state is not null)
@@ -139,6 +147,23 @@ public sealed class ProxiFyreManager
 
     private static Task<ProcessResult> RunScAsync(string verb, string service, bool throwOnError) =>
         RunProcessAsync("sc.exe", $"{verb} {service}", throwOnError);
+
+    private static async Task WriteTextAtomicallyAsync(string path, string content)
+    {
+        var temporaryPath = path + ".duallink.tmp";
+        await File.WriteAllTextAsync(temporaryPath, content, new UTF8Encoding(false));
+        File.Move(temporaryPath, path, true);
+    }
+
+    private bool IsExpectedState(BoostSessionState state)
+    {
+        try
+        {
+            return Path.GetFullPath(state.ConfigPath).Equals(Path.GetFullPath(ConfigPath), StringComparison.OrdinalIgnoreCase)
+                && Path.GetFullPath(state.BackupPath).Equals(Path.GetFullPath(_backupPath), StringComparison.OrdinalIgnoreCase);
+        }
+        catch { return false; }
+    }
 
     internal static async Task<ProcessResult> RunProcessAsync(string fileName, string arguments, bool throwOnError)
     {

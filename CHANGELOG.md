@@ -2,6 +2,22 @@
 
 All notable DualLink changes are recorded here. Versions follow semantic versioning.
 
+## 2.3.0-dev.1 - 2026-08-29
+
+- Added Smart, Balanced, and Backup connection behaviors with live switching.
+- Added per-route load tracking, failure cooldown, and automatic healthy-link failover.
+- Secured the local SOCKS endpoint with random per-session username/password authentication and a dynamic loopback port.
+- Bounded local proxy concurrency and added a handshake deadline to resist stalled-client resource exhaustion.
+- Matched custom applications and the detected browser by full executable path in addition to process name.
+- Replaced the second full WPF recovery process with a trimmed, self-contained watchdog; measured working set fell from about 146 MB to 23 MB.
+- Reduced background process scanning and slowed refresh work while the window is hidden.
+- Disabled ReadyToRun for the desktop publish to favor package and working-set efficiency.
+- Constrained elevated recovery to the expected DualLink and ProxiFyre paths and made active config writes atomic.
+- Added deterministic, privacy-safe UI snapshots plus Windows CI, CodeQL, Dependabot, and an attested manual candidate build.
+- Replaced the letter-based shell icon with an original two-routes-to-one confluence mark and exact multi-resolution Windows ICO frames.
+- Added a branded notification-area menu plus live hover details for combined download, upload, active sessions, and routing mode.
+- Expanded integration tests for proxy authentication, failed-route quarantine, and full-path matching.
+
 ## 2.2.0 - 2026-08-29
 
 - Embedded the Inter 4.1 type family and retuned hierarchy, weights, line spacing, and text colors for calmer desktop reading.

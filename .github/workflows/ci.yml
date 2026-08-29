@@ -1,0 +1,27 @@
+name: Windows build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Restore
+        run: dotnet restore src/DualLink/DualLink.csproj --configfile NuGet.Config
+      - name: Build app
+        run: dotnet build src/DualLink/DualLink.csproj -c Release --no-restore
+      - name: Build watchdog
+        run: dotnet build src/DualLink.Watchdog/DualLink.Watchdog.csproj -c Release
+      - name: Run integration tests
+        run: dotnet run --project tests/DualLink.Tests/DualLink.Tests.csproj -c Release
