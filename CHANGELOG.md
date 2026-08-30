@@ -9,6 +9,7 @@ All notable DualLink changes are recorded here. Versions follow semantic version
 - Added byte-accurate per-route upload and download accounting inside the local proxy, and switched the dashboard, graph, and tray to selected-application traffic while boost is active.
 - Added per-route successful-connection evidence so Details and the tray can confirm when both links have actually carried selected-app sessions.
 - Replaced session-count guesses in diagnostics with authoritative per-route contribution evidence and a plain explanation of single-connection limits.
+- Added duplicate-safe custom application selection and a quiet Remove action for custom targets, without adding per-application settings profiles.
 
 ## 2.3.0-dev.3 - 2026-08-29
 

@@ -243,21 +243,34 @@
                         <Grid.ColumnDefinitions>
                           <ColumnDefinition Width="12" />
                           <ColumnDefinition />
-                          <ColumnDefinition Width="Auto" />
-                          <ColumnDefinition Width="18" />
-                          <ColumnDefinition Width="Auto" />
+                           <ColumnDefinition Width="Auto" />
+                           <ColumnDefinition Width="10" />
+                           <ColumnDefinition Width="Auto" />
+                           <ColumnDefinition Width="8" />
+                           <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <Ellipse Width="7" Height="7" Fill="{Binding Accent}" VerticalAlignment="Center" HorizontalAlignment="Left" />
                         <StackPanel Grid.Column="1">
                           <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="Medium" />
                           <TextBlock Text="{Binding Subtitle}" Style="{StaticResource CaptionText}" Margin="0,3,0,0" />
                         </StackPanel>
-                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                         <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                           <Ellipse x:Name="RunDot" Width="6" Height="6" Fill="{StaticResource TertiaryBrush}" Margin="0,0,6,0" />
                           <TextBlock Text="{Binding RunState}" Foreground="{StaticResource TertiaryBrush}" FontSize="10" />
-                        </StackPanel>
-                        <CheckBox Grid.Column="4" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding IsSelected, Mode=TwoWay}"
-                                  Click="ProfileSelection_Click" VerticalAlignment="Center" />
+                         </StackPanel>
+                         <Button Grid.Column="4" Content="Remove" Click="RemoveProfile_Click" Padding="7,4" ToolTip="Remove this custom application">
+                           <Button.Style>
+                             <Style TargetType="Button" BasedOn="{StaticResource QuietButton}">
+                               <Setter Property="Visibility" Value="Collapsed" />
+                               <Setter Property="Foreground" Value="{StaticResource TertiaryBrush}" />
+                               <Style.Triggers>
+                                 <DataTrigger Binding="{Binding IsCustom}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger>
+                               </Style.Triggers>
+                             </Style>
+                           </Button.Style>
+                         </Button>
+                         <CheckBox Grid.Column="6" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                   Click="ProfileSelection_Click" VerticalAlignment="Center" />
                       </Grid>
                       <Border.Style>
                         <Style TargetType="Border">

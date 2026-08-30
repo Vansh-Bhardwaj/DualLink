@@ -1040,12 +1040,28 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         Close();
     }
 
-    private void AddExecutable_Click(object sender, RoutedEventArgs e)
+    private async void AddExecutable_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new OpenFileDialog { Filter = "Applications (*.exe)|*.exe", Title = "Choose an application to boost" };
         if (dialog.ShowDialog(this) != true) return;
-        var processName = Path.GetFileName(dialog.FileName);
-        var displayName = FileVersionInfo.GetVersionInfo(dialog.FileName).FileDescription;
+        var executablePath = Path.GetFullPath(dialog.FileName);
+        var processName = Path.GetFileName(executablePath);
+        var existing = Profiles.FirstOrDefault(x => x.ExecutablePaths.Any(path =>
+                path.Equals(executablePath, StringComparison.OrdinalIgnoreCase)))
+            ?? Profiles.FirstOrDefault(x => !x.IsCustom && x.Processes.Contains(processName, StringComparer.OrdinalIgnoreCase));
+        if (existing is not null)
+        {
+            var selectionChanged = !existing.IsSelected;
+            existing.IsSelected = true;
+            SaveSettings();
+            if (_boosting && selectionChanged) await RestartForSelectionChangeAsync();
+            Log($"{existing.Name} is already in the application list");
+            return;
+        }
+
+        string? displayName = null;
+        try { displayName = FileVersionInfo.GetVersionInfo(executablePath).FileDescription; }
+        catch { }
         if (string.IsNullOrWhiteSpace(displayName)) displayName = Path.GetFileNameWithoutExtension(dialog.FileName);
         var profile = new AppProfile
         {
@@ -1053,13 +1069,23 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             Subtitle = "Custom application",
             Accent = "#B6C2D1",
             Processes = new List<string> { processName },
-            ExecutablePaths = new List<string> { dialog.FileName },
+            ExecutablePaths = new List<string> { executablePath },
             IsCustom = true,
             IsSelected = true
         };
         Profiles.Add(profile);
         SaveSettings();
         Log($"Added {processName}");
+    }
+
+    private async void RemoveProfile_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { DataContext: AppProfile profile } || !profile.IsCustom) return;
+        var requiresRestart = _boosting && profile.IsSelected;
+        Profiles.Remove(profile);
+        SaveSettings();
+        Log($"Removed {profile.Name}");
+        if (requiresRestart) await RestartForSelectionChangeAsync();
     }
 
     private async void InstallFilter_Click(object sender, RoutedEventArgs e)
