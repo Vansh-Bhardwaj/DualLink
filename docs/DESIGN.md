@@ -4,14 +4,23 @@
 
 DualLink is a compact network-control utility for Windows users downloading large games and files through two independent links. The primary task is to choose applications and turn distribution on or off with immediate confidence that both links are healthy.
 
-## Reference direction
+## Platform design synthesis
 
-The interface follows the information discipline of TripMode's application list and the layered hierarchy described by Apple's macOS Human Interface Guidelines, without copying Apple assets or pretending to be a macOS window.
+DualLink combines principles from Apple, Google, and Microsoft without copying proprietary assets or pretending to belong to another platform.
 
-- TripMode press kit: https://tripmode.ch/press-kit/
-- Apple materials guidance: https://developer.apple.com/design/human-interface-guidelines/materials
-- Apple sidebar guidance: https://developer.apple.com/design/human-interface-guidelines/sidebars
-- Little Snitch Mini: https://apps.apple.com/us/app/little-snitch-mini/id1629008763
+- Apple contributes restraint, hierarchy, alignment, and shallow material depth.
+- Google contributes direct language, legible state changes, and predictable component behavior.
+- Microsoft contributes native Windows conventions, keyboard navigation, visible focus, tray behavior, and accessibility.
+- Inter remains the product typeface. SF Pro and Google Sans are proprietary and are not redistributed.
+
+## Type scale
+
+- 30 px Medium: live throughput only; use tabular numerals.
+- 20 px Medium: page and inspector titles.
+- 13 px Medium: application names and important labels.
+- 12.5 px Regular: body and control text.
+- 12 px Regular: supporting text, with an 18 px line height.
+- SemiBold is reserved for state and primary action emphasis. Uppercase labels are not used.
 
 ## Visual direction: quiet network instrument
 
@@ -61,3 +70,4 @@ The left utility pane remains 292 pixels wide. The application list receives all
 - Details and settings remain hidden until requested.
 - Diagnostic results lead with an outcome and action; IP addresses and technical activity are never the default surface.
 - Screenshot review must show a clear primary action and no repeated decorative container treatment.
+- The app must remain recognizably Windows: standard window actions, visible keyboard focus, and no imitation macOS chrome.

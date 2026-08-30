@@ -193,11 +193,27 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             _selectedRoutingModeOption = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(RoutingModeDescription));
+            OnPropertyChanged(nameof(CompatibilityGuardText));
             ApplyRouteMix();
         }
     }
 
     public string RoutingModeDescription => SelectedRoutingModeOption?.Description ?? string.Empty;
+    public string CompatibilityGuardText
+    {
+        get
+        {
+            var mode = SelectedRoutingModeOption?.Mode ?? RoutingMode.Smart;
+            if (mode == RoutingMode.Balanced) return "Manual limits apply instantly to new connections.";
+            if (mode == RoutingMode.Failover) return "Ethernet first; Wi-Fi takes over if needed.";
+            var guard = _balancer.CompatibilityGuardStatus;
+            if (!guard.IsActive) return "Protects sign-in and keeps destinations consistent.";
+            if (guard.IsWarmingUp) return "Protecting sign-in traffic before using both connections.";
+            return guard.RememberedDestinations == 0
+                ? "Learning the safest connection for each destination."
+                : $"Keeping {FormatCount(guard.RememberedDestinations, "destination")} consistent.";
+        }
+    }
 
     public UpdateChannelOption? SelectedUpdateChannelOption
     {
@@ -442,6 +458,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             OnPropertyChanged(nameof(CombinedSpeedText));
             OnPropertyChanged(nameof(CombinedUploadSpeedText));
             OnPropertyChanged(nameof(RouteHealthText));
+            OnPropertyChanged(nameof(CompatibilityGuardText));
             OnPropertyChanged(nameof(EthernetQualityText));
             OnPropertyChanged(nameof(WifiQualityText));
             RefreshBoostContributionProperties();
@@ -865,6 +882,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _balancer.UpdateSources(BuildRouteDefinitions(), SelectedRoutingModeOption?.Mode ?? RoutingMode.Smart);
         UpdateActiveRouteStatus();
         RefreshBoostContributionProperties();
+        OnPropertyChanged(nameof(CompatibilityGuardText));
     }
 
     private RouteDefinition[] BuildRouteDefinitions()

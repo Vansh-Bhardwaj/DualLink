@@ -100,11 +100,11 @@
 
             <Grid>
               <StackPanel>
-                <TextBlock Text="Connection mix" Style="{StaticResource SectionTitle}" />
+                <TextBlock Text="Connections" Style="{StaticResource SectionTitle}" />
                 <TextBlock Text="{Binding TrafficScopeText}" Style="{StaticResource CaptionText}" Margin="0,4,0,0" />
                 <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
                   <TextBlock Text="↓" Foreground="{StaticResource WifiBrush}" FontSize="17" Margin="0,6,7,0" />
-                  <TextBlock Text="{Binding CombinedSpeedText}" FontSize="29" FontWeight="Medium" />
+                  <TextBlock Text="{Binding CombinedSpeedText}" Style="{StaticResource MetricText}" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="1,2,0,0">
                   <TextBlock Text="Upload" Foreground="{StaticResource TertiaryBrush}" FontSize="10.5" />
@@ -198,7 +198,8 @@
                         Height="32" VerticalAlignment="Center" />
             </Grid>
 
-            <TextBlock Grid.Row="10" Text="Speed changes apply live." Style="{StaticResource CaptionText}" />
+            <TextBlock Grid.Row="10" Text="{Binding CompatibilityGuardText}" Style="{StaticResource CaptionText}"
+                       TextWrapping="Wrap" />
           </Grid>
         </Border>
 
@@ -214,7 +215,7 @@
           <Grid>
             <StackPanel>
               <TextBlock Text="Applications" Style="{StaticResource SectionTitle}" />
-              <TextBlock Text="Choose which downloads use the connection mix" Style="{StaticResource CaptionText}" Margin="0,4,0,0" />
+              <TextBlock Text="Choose which apps use both connections" Style="{StaticResource CaptionText}" Margin="0,4,0,0" />
             </StackPanel>
             <Button Content="Add application…" HorizontalAlignment="Right" VerticalAlignment="Center" Click="AddExecutable_Click" />
           </Grid>
@@ -327,7 +328,7 @@
             </Grid>
             <Border Grid.Row="4" Background="{StaticResource CanvasBrush}" CornerRadius="8" Padding="14">
               <StackPanel>
-                <TextBlock Text="THIS BOOST" Foreground="{StaticResource AccentBrush}" FontSize="9.5" FontWeight="SemiBold" />
+                <TextBlock Text="This session" Foreground="{StaticResource AccentBrush}" Style="{StaticResource LabelText}" />
                 <TextBlock Text="{Binding BoostContributionHeadline}" FontWeight="SemiBold" FontSize="13" Margin="0,7,0,0" />
                 <TextBlock Text="{Binding BoostContributionSummary}" Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,4,0,12" />
                 <Grid>

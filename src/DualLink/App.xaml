@@ -24,9 +24,23 @@
       <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
       <Setter Property="FontFamily" Value="{StaticResource AppFont}" />
       <Setter Property="FontWeight" Value="Normal" />
+      <Setter Property="FontSize" Value="12.5" />
       <Setter Property="TextOptions.TextFormattingMode" Value="Ideal" />
       <Setter Property="TextOptions.TextRenderingMode" Value="ClearType" />
       <Setter Property="TextOptions.TextHintingMode" Value="Fixed" />
+    </Style>
+
+    <Style x:Key="MetricText" TargetType="TextBlock">
+      <Setter Property="FontFamily" Value="{StaticResource AppFont}" />
+      <Setter Property="FontSize" Value="30" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="Typography.NumeralAlignment" Value="Tabular" />
+    </Style>
+
+    <Style x:Key="LabelText" TargetType="TextBlock">
+      <Setter Property="FontFamily" Value="{StaticResource AppFont}" />
+      <Setter Property="FontSize" Value="12.5" />
+      <Setter Property="FontWeight" Value="Medium" />
     </Style>
 
     <Style x:Key="SectionTitle" TargetType="TextBlock">
@@ -37,8 +51,8 @@
 
     <Style x:Key="CaptionText" TargetType="TextBlock">
       <Setter Property="Foreground" Value="{StaticResource SecondaryBrush}" />
-      <Setter Property="FontSize" Value="11.5" />
-      <Setter Property="LineHeight" Value="17" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="LineHeight" Value="18" />
     </Style>
 
     <Style TargetType="Button">
@@ -50,7 +64,7 @@
       <Setter Property="Cursor" Value="Hand" />
       <Setter Property="FontFamily" Value="{StaticResource AppFont}" />
       <Setter Property="FontWeight" Value="Medium" />
-      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="FontSize" Value="12" />
       <Setter Property="FocusVisualStyle" Value="{x:Null}" />
       <Setter Property="HorizontalContentAlignment" Value="Center" />
       <Setter Property="VerticalContentAlignment" Value="Center" />
@@ -158,7 +172,7 @@
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="BorderBrush" Value="{StaticResource DividerBrush}" />
       <Setter Property="BorderThickness" Value="0" />
-      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="FontSize" Value="12" />
       <Setter Property="Cursor" Value="Hand" />
       <Setter Property="FocusVisualStyle" Value="{x:Null}" />
       <Setter Property="Template">

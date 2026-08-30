@@ -14,6 +14,8 @@ public sealed class Socks5Balancer : IAsyncDisposable
     private readonly int _configuredPort;
     private readonly Action<string> _log;
     private readonly ProxyCredentials _credentials;
+    private readonly CompatibilityGuardOptions _compatibilityGuard;
+    private readonly TimeProvider _timeProvider;
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
     private List<RouteState> _routes = new();
@@ -25,12 +27,27 @@ public sealed class Socks5Balancer : IAsyncDisposable
     private readonly ConcurrentDictionary<long, Task> _clientTasks = new();
     private readonly SemaphoreSlim _connectionGate = new(512, 512);
     private RoutingMode _mode = RoutingMode.Smart;
+    private DateTimeOffset _sessionStartedUtc;
+    private readonly Dictionary<string, DestinationAffinity> _destinationAffinities = new(StringComparer.OrdinalIgnoreCase);
 
-    public Socks5Balancer(int port, Action<string> log, ProxyCredentials credentials)
+    public Socks5Balancer(
+        int port,
+        Action<string> log,
+        ProxyCredentials credentials,
+        CompatibilityGuardOptions? compatibilityGuard = null,
+        TimeProvider? timeProvider = null)
     {
         _configuredPort = port;
         _log = log;
         _credentials = credentials;
+        _compatibilityGuard = compatibilityGuard ?? CompatibilityGuardOptions.Default;
+        if (_compatibilityGuard.WarmupDuration < TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(compatibilityGuard), "Warmup duration cannot be negative.");
+        if (_compatibilityGuard.DestinationAffinityDuration <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(compatibilityGuard), "Destination affinity duration must be positive.");
+        if (_compatibilityGuard.MaximumDestinations < 1)
+            throw new ArgumentOutOfRangeException(nameof(compatibilityGuard), "At least one remembered destination is required.");
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     public int ActiveConnections => Volatile.Read(ref _activeConnections);
@@ -38,6 +55,22 @@ public sealed class Socks5Balancer : IAsyncDisposable
     public bool IsRunning => _listener is not null;
     public int BoundPort => (_listener?.LocalEndpoint as IPEndPoint)?.Port ?? 0;
     public RoutingMode Mode => _mode;
+    public CompatibilityGuardStatus CompatibilityGuardStatus
+    {
+        get
+        {
+            lock (_sourceLock)
+            {
+                var now = _timeProvider.GetUtcNow();
+                RemoveExpiredAffinities(now);
+                var active = IsRunning && _mode == RoutingMode.Smart && _routes.Count > 1;
+                return new CompatibilityGuardStatus(
+                    active,
+                    active && now - _sessionStartedUtc < _compatibilityGuard.WarmupDuration,
+                    active ? _destinationAffinities.Count : 0);
+            }
+        }
+    }
     public IReadOnlyList<RouteStatus> RouteStatuses
     {
         get
@@ -61,6 +94,8 @@ public sealed class Socks5Balancer : IAsyncDisposable
         {
             _routes = new List<RouteState>();
             _sessionRoutes.Clear();
+            _destinationAffinities.Clear();
+            _sessionStartedUtc = _timeProvider.GetUtcNow();
         }
         UpdateSources(sources, mode);
         lock (_sourceLock)
@@ -100,6 +135,7 @@ public sealed class Socks5Balancer : IAsyncDisposable
                 return created;
             }).ToList();
             _mode = mode;
+            RemoveInvalidAffinities();
         }
         _log($"Route policy: {mode} · {string.Join(", ", definitions.Select(x => $"{x.Name ?? x.Address} {x.Weight}×"))}");
     }
@@ -115,6 +151,7 @@ public sealed class Socks5Balancer : IAsyncDisposable
             await Task.WhenAny(Task.WhenAll(clients), Task.Delay(500));
         _cts?.Dispose();
         _cts = null;
+        lock (_sourceLock) _destinationAffinities.Clear();
         _log("Balancer stopped");
     }
 
@@ -282,7 +319,8 @@ public sealed class Socks5Balancer : IAsyncDisposable
         var destination = addresses.FirstOrDefault(x => x.AddressFamily == AddressFamily.InterNetwork)
             ?? throw new SocketException((int)SocketError.HostNotFound);
 
-        var ordered = SelectCandidates();
+        var destinationKey = $"{destination}:{port}";
+        var ordered = SelectCandidates(destinationKey);
         Exception? last = null;
         foreach (var route in ordered)
         {
@@ -297,6 +335,7 @@ public sealed class Socks5Balancer : IAsyncDisposable
                 timeout.CancelAfter(TimeSpan.FromSeconds(12));
                 await socket.ConnectAsync(new IPEndPoint(destination, port), timeout.Token);
                 route.MarkSuccess(Stopwatch.GetElapsedTime(connectStarted).TotalMilliseconds);
+                RememberDestination(destinationKey, route);
                 return (socket, source, new RouteLease(route));
             }
             catch (Exception ex)
@@ -308,6 +347,7 @@ public sealed class Socks5Balancer : IAsyncDisposable
                 if (IsRouteFailure(ex))
                 {
                     route.MarkFailure();
+                    ForgetDestination(destinationKey, route);
                     _log($"{route.Name} is unavailable; trying another link");
                 }
                 else
@@ -333,13 +373,14 @@ public sealed class Socks5Balancer : IAsyncDisposable
             SocketError.AddressNotAvailable;
     }
 
-    private List<RouteState> SelectCandidates()
+    private List<RouteState> SelectCandidates(string destinationKey)
     {
         lock (_sourceLock)
         {
             if (_routes.Count == 0) throw new InvalidOperationException("No routes are configured.");
-            var now = DateTime.UtcNow;
-            var healthy = _routes.Where(x => x.UnhealthyUntilUtc <= now).ToList();
+            var now = _timeProvider.GetUtcNow();
+            var nowUtc = now.UtcDateTime;
+            var healthy = _routes.Where(x => x.UnhealthyUntilUtc <= nowUtc).ToList();
             var pool = healthy.Count > 0 ? healthy : _routes.OrderBy(x => x.UnhealthyUntilUtc).ToList();
 
             return _mode switch
@@ -349,12 +390,71 @@ public sealed class Socks5Balancer : IAsyncDisposable
                     .ThenBy(x => x.Failures)
                     .ToList(),
                 RoutingMode.Balanced => RotateWeighted(pool),
-                _ => Rotate(pool)
-                    .OrderBy(x => x.SmartScore)
-                    .ThenBy(x => x.Failures)
-                    .Concat(_routes.Except(pool).OrderBy(x => x.UnhealthyUntilUtc))
-                    .ToList()
+                _ => SelectSmartCandidates(pool, destinationKey, now)
             };
+        }
+    }
+
+    private List<RouteState> SelectSmartCandidates(IReadOnlyList<RouteState> pool, string destinationKey, DateTimeOffset now)
+    {
+        var ranked = Rotate(pool)
+            .OrderBy(x => x.SmartScore)
+            .ThenBy(x => x.Failures)
+            .Concat(_routes.Except(pool).OrderBy(x => x.UnhealthyUntilUtc))
+            .ToList();
+
+        if (now - _sessionStartedUtc < _compatibilityGuard.WarmupDuration)
+            return pool.OrderByDescending(x => x.IsPrimary)
+                .ThenBy(x => x.Failures)
+                .Concat(_routes.Except(pool).OrderBy(x => x.UnhealthyUntilUtc))
+                .ToList();
+
+        if (_destinationAffinities.TryGetValue(destinationKey, out var affinity))
+        {
+            if (affinity.ExpiresUtc > now && affinity.Route.AcceptingNewConnections && pool.Contains(affinity.Route))
+                return new[] { affinity.Route }.Concat(ranked.Where(x => !ReferenceEquals(x, affinity.Route))).ToList();
+            _destinationAffinities.Remove(destinationKey);
+        }
+
+        return ranked;
+    }
+
+    private void RememberDestination(string destinationKey, RouteState route)
+    {
+        lock (_sourceLock)
+        {
+            if (_mode != RoutingMode.Smart || _routes.Count < 2) return;
+            var now = _timeProvider.GetUtcNow();
+            if (_destinationAffinities.Count >= _compatibilityGuard.MaximumDestinations)
+                RemoveExpiredAffinities(now, removeOldestWhenFull: true);
+            _destinationAffinities[destinationKey] = new DestinationAffinity(route, now + _compatibilityGuard.DestinationAffinityDuration);
+        }
+    }
+
+    private void ForgetDestination(string destinationKey, RouteState failedRoute)
+    {
+        lock (_sourceLock)
+        {
+            if (_destinationAffinities.TryGetValue(destinationKey, out var affinity) && ReferenceEquals(affinity.Route, failedRoute))
+                _destinationAffinities.Remove(destinationKey);
+        }
+    }
+
+    private void RemoveInvalidAffinities()
+    {
+        var validRoutes = new HashSet<RouteState>(_routes);
+        foreach (var key in _destinationAffinities.Where(x => !validRoutes.Contains(x.Value.Route)).Select(x => x.Key).ToArray())
+            _destinationAffinities.Remove(key);
+    }
+
+    private void RemoveExpiredAffinities(DateTimeOffset now, bool removeOldestWhenFull = false)
+    {
+        foreach (var key in _destinationAffinities.Where(x => x.Value.ExpiresUtc <= now).Select(x => x.Key).ToArray())
+            _destinationAffinities.Remove(key);
+        if (removeOldestWhenFull && _destinationAffinities.Count >= _compatibilityGuard.MaximumDestinations)
+        {
+            var oldest = _destinationAffinities.MinBy(x => x.Value.ExpiresUtc).Key;
+            _destinationAffinities.Remove(oldest);
         }
     }
 
@@ -531,4 +631,6 @@ public sealed class Socks5Balancer : IAsyncDisposable
         public ValueTask ThrottleAsync(int bytes, CancellationToken token) => _route?.ThrottleAsync(bytes, token) ?? ValueTask.CompletedTask;
         public void Dispose() => Interlocked.Exchange(ref _route, null)?.Release();
     }
+
+    private sealed record DestinationAffinity(RouteState Route, DateTimeOffset ExpiresUtc);
 }

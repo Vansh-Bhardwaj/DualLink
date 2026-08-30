@@ -64,6 +64,71 @@ Console.WriteLine("PASS: dual-link rotation and live zero-weight switching: " + 
 Console.WriteLine("PASS: successful routes expose latency and app traffic state");
 Console.WriteLine("PASS: per-boost contribution evidence resets between boosts");
 
+var warmupSources = new List<string>();
+var warmupServer = new TcpListener(IPAddress.Any, 0);
+warmupServer.Start();
+var warmupServerPort = ((IPEndPoint)warmupServer.LocalEndpoint).Port;
+var warmupServerTask = Task.Run(async () =>
+{
+    for (var i = 0; i < 2; i++)
+    {
+        using var accepted = await warmupServer.AcceptTcpClientAsync(cts.Token);
+        warmupSources.Add(((IPEndPoint)accepted.Client.RemoteEndPoint!).Address.ToString());
+        var stream = accepted.GetStream();
+        var buffer = new byte[256];
+        await stream.ReadAtLeastAsync(buffer, 1, cancellationToken: cts.Token);
+        await stream.WriteAsync(Encoding.ASCII.GetBytes("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"), cts.Token);
+    }
+}, cts.Token);
+await using (var warmupProxy = new Socks5Balancer(0, _ => { }, credentials,
+    new CompatibilityGuardOptions(TimeSpan.FromHours(1), TimeSpan.FromMinutes(10), 32)))
+{
+    await warmupProxy.StartAsync(new[]
+    {
+        new RouteDefinition("127.0.0.1", 1, true, "Primary"),
+        new RouteDefinition("127.0.0.2", 1, false, "Secondary")
+    }, RoutingMode.Smart);
+    await SendRequestAsync(warmupProxy.BoundPort, warmupServerPort, cts.Token, credentials);
+    await SendRequestAsync(warmupProxy.BoundPort, warmupServerPort, cts.Token, credentials);
+    await warmupServerTask;
+    if (warmupSources.Any(x => x != "127.0.0.1") || !warmupProxy.CompatibilityGuardStatus.IsWarmingUp)
+        throw new Exception("Smart-mode warmup did not keep startup traffic on the primary route.");
+}
+warmupServer.Stop();
+
+var affinitySources = new List<string>();
+var affinityServer = new TcpListener(IPAddress.Any, 0);
+affinityServer.Start();
+var affinityServerPort = ((IPEndPoint)affinityServer.LocalEndpoint).Port;
+var affinityServerTask = Task.Run(async () =>
+{
+    for (var i = 0; i < 4; i++)
+    {
+        using var accepted = await affinityServer.AcceptTcpClientAsync(cts.Token);
+        affinitySources.Add(((IPEndPoint)accepted.Client.RemoteEndPoint!).Address.ToString());
+        var stream = accepted.GetStream();
+        var buffer = new byte[256];
+        await stream.ReadAtLeastAsync(buffer, 1, cancellationToken: cts.Token);
+        await stream.WriteAsync(Encoding.ASCII.GetBytes("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"), cts.Token);
+    }
+}, cts.Token);
+await using (var affinityProxy = new Socks5Balancer(0, _ => { }, credentials,
+    new CompatibilityGuardOptions(TimeSpan.Zero, TimeSpan.FromMinutes(10), 32)))
+{
+    await affinityProxy.StartAsync(new[]
+    {
+        new RouteDefinition("127.0.0.1", 1, true, "Primary"),
+        new RouteDefinition("127.0.0.2", 1, false, "Secondary")
+    }, RoutingMode.Smart);
+    for (var i = 0; i < 4; i++)
+        await SendRequestAsync(affinityProxy.BoundPort, affinityServerPort, cts.Token, credentials);
+    await affinityServerTask;
+    if (affinitySources.Distinct().Count() != 1 || affinityProxy.CompatibilityGuardStatus.RememberedDestinations != 1)
+        throw new Exception("Smart mode changed the public route for repeated connections to one destination.");
+}
+affinityServer.Stop();
+Console.WriteLine("PASS: Smart mode protects startup traffic and keeps each destination on a consistent route");
+
 var authServer = new TcpListener(IPAddress.Loopback, 0);
 authServer.Start();
 var authServerPort = ((IPEndPoint)authServer.LocalEndpoint).Port;

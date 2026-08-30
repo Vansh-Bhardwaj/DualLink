@@ -18,6 +18,13 @@ public sealed class RoutingModeOption
     public override string ToString() => DisplayName;
 }
 
+public sealed record CompatibilityGuardOptions(TimeSpan WarmupDuration, TimeSpan DestinationAffinityDuration, int MaximumDestinations)
+{
+    public static CompatibilityGuardOptions Default { get; } = new(TimeSpan.FromSeconds(15), TimeSpan.FromMinutes(10), 2048);
+}
+
+public readonly record struct CompatibilityGuardStatus(bool IsActive, bool IsWarmingUp, int RememberedDestinations);
+
 public readonly record struct RouteDefinition(string Address, int Weight, bool IsPrimary = false, string? Name = null, int SpeedLimitMbps = 0);
 
 public readonly record struct RouteStatus(

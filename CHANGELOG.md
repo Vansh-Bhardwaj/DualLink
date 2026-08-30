@@ -2,6 +2,15 @@
 
 All notable DualLink changes are recorded here. Versions follow semantic versioning.
 
+## 4.0.0-alpha.1 - 2026-08-31
+
+- Added a Smart-mode compatibility guard that keeps startup sign-in traffic on the primary connection before using both links.
+- Keep repeated connections to the same destination on one public route for ten minutes, reducing address changes during authenticated and stateful traffic.
+- Preserve live manual route limits: choosing a route speed still switches to Balanced mode, where changes apply immediately without destination affinity.
+- Added a bounded, expiring destination-memory cache that is cleared on shutdown and when a route is removed.
+- Introduced a coherent type scale based on embedded Inter, tabular throughput numerals, calmer labels, and clearer plain-language Smart-mode state.
+- Documented the Apple, Google, and Microsoft design principles used without redistributing proprietary fonts or imitating another platform.
+
 ## 3.1.1 - 2026-08-31
 
 - Fixed nearby Wi-Fi names losing their first two characters by matching the native Windows structure layout exactly.
