@@ -18,6 +18,7 @@ public partial class App : System.Windows.Application
         if (e.Args.Length >= 2 &&
             (e.Args[0].Equals("--snapshot", StringComparison.OrdinalIgnoreCase) ||
              e.Args[0].Equals("--snapshot-settings", StringComparison.OrdinalIgnoreCase) ||
+             e.Args[0].Equals("--snapshot-details", StringComparison.OrdinalIgnoreCase) ||
              e.Args[0].Equals("--snapshot-picker", StringComparison.OrdinalIgnoreCase) ||
              e.Args[0].Equals("--snapshot-add", StringComparison.OrdinalIgnoreCase)))
         {
@@ -28,6 +29,8 @@ public partial class App : System.Windows.Application
             {
                 if (e.Args[0].Equals("--snapshot-settings", StringComparison.OrdinalIgnoreCase))
                     preview.ShowSettingsPreview();
+                if (e.Args[0].Equals("--snapshot-details", StringComparison.OrdinalIgnoreCase))
+                    preview.ShowDetailsPreview();
                 if (e.Args[0].Equals("--snapshot-picker", StringComparison.OrdinalIgnoreCase))
                     preview.ShowNetworkPickerPreview();
                 if (e.Args[0].Equals("--snapshot-add", StringComparison.OrdinalIgnoreCase))

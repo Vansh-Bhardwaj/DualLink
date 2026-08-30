@@ -233,6 +233,36 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     }
     public string EthernetQualityText => GetQualityText(SelectedEthernet);
     public string WifiQualityText => GetQualityText(SelectedWifi);
+    public string BoostContributionHeadline
+    {
+        get
+        {
+            if (_previewMode) return "Both connections contributed";
+            if (!_boosting) return "Ready for the next boost";
+            var used = _balancer.RouteStatuses.Where(x => x.SuccessfulConnections > 0 || x.DownloadedBytes > 0 || x.UploadedBytes > 0).ToArray();
+            return used.Length switch
+            {
+                > 1 => "Both connections contributed",
+                1 => $"{used[0].Name} is carrying this boost",
+                _ => "Waiting for application traffic"
+            };
+        }
+    }
+    public string BoostContributionSummary
+    {
+        get
+        {
+            if (_previewMode) return "394 MB downloaded · 67 MB uploaded · 27 connections";
+            if (!_boosting) return "Usage starts at zero whenever boost begins.";
+            var statuses = _balancer.RouteStatuses;
+            var downloaded = statuses.Sum(x => x.DownloadedBytes);
+            var uploaded = statuses.Sum(x => x.UploadedBytes);
+            var connections = statuses.Sum(x => x.SuccessfulConnections);
+            return $"{FormatBytes(downloaded)} downloaded · {FormatBytes(uploaded)} uploaded · {FormatCount(connections, "connection")}";
+        }
+    }
+    public string EthernetBoostContribution => _previewMode ? "126 MB · 9 connections" : GetRouteContribution(SelectedEthernet);
+    public string WifiBoostContribution => _previewMode ? "268 MB · 18 connections" : GetRouteContribution(SelectedWifi);
     public string RouteHealthText
     {
         get
@@ -389,6 +419,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             OnPropertyChanged(nameof(RouteHealthText));
             OnPropertyChanged(nameof(EthernetQualityText));
             OnPropertyChanged(nameof(WifiQualityText));
+            RefreshBoostContributionProperties();
             if (now >= _nextProcessScanUtc)
             {
                 UpdateRunningProfiles();
@@ -530,6 +561,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             _nextStartAttemptUtc = DateTime.MinValue;
             OnPropertyChanged(nameof(TrafficScopeText));
             OnPropertyChanged(nameof(TrafficHistoryToolTip));
+            RefreshBoostContributionProperties();
             UpdateActiveRouteStatus();
             UpdateTray();
             Log($"Boost active for {string.Join(", ", selected.Select(x => x.Name))}");
@@ -552,6 +584,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             _routeTrafficBaselines.Clear();
             OnPropertyChanged(nameof(TrafficScopeText));
             OnPropertyChanged(nameof(TrafficHistoryToolTip));
+            RefreshBoostContributionProperties();
             Log(reason);
         }
         StatusText = _armed ? "Waiting" : "Ready";
@@ -785,6 +818,42 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             : quality;
     }
 
+    private string GetRouteContribution(LinkInfo? link)
+    {
+        if (link is null) return "Not connected";
+        if (link.Weight == 0) return "Turned off";
+        if (!_boosting) return "Waiting";
+        var status = _balancer.RouteStatuses.FirstOrDefault(x => x.Address.Equals(link.Address, StringComparison.OrdinalIgnoreCase));
+        if (string.IsNullOrEmpty(status.Address)) return "Not active";
+        var total = status.DownloadedBytes + status.UploadedBytes;
+        return total == 0 && status.SuccessfulConnections == 0
+            ? "Waiting"
+            : $"{FormatBytes(total)} · {FormatCount(status.SuccessfulConnections, "connection")}";
+    }
+
+    private void RefreshBoostContributionProperties()
+    {
+        OnPropertyChanged(nameof(BoostContributionHeadline));
+        OnPropertyChanged(nameof(BoostContributionSummary));
+        OnPropertyChanged(nameof(EthernetBoostContribution));
+        OnPropertyChanged(nameof(WifiBoostContribution));
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        string[] units = ["B", "KB", "MB", "GB", "TB"];
+        var display = (double)Math.Max(0, bytes);
+        var unit = 0;
+        while (display >= 1000 && unit < units.Length - 1)
+        {
+            display /= 1000;
+            unit++;
+        }
+        return unit == 0 ? $"{display:0} {units[unit]}" : $"{display:0.#} {units[unit]}";
+    }
+
+    private static string FormatCount(long count, string singular) => $"{count} {(count == 1 ? singular : singular + "s")}";
+
     private void NetworkChanged(object? sender, EventArgs e)
     {
         if (_allowClose || _previewMode) return;
@@ -1016,6 +1085,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     }
 
     public void ShowSettingsPreview() => SettingsDrawer.Visibility = Visibility.Visible;
+    public void ShowDetailsPreview() => DetailsDrawer.Visibility = Visibility.Visible;
     public void ShowNetworkPickerPreview() => WifiAdapterPicker.IsDropDownOpen = true;
     public void ShowAddApplicationPreview()
     {
