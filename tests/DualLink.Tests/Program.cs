@@ -52,8 +52,14 @@ server.Stop();
 if (sources.TakeLast(2).Any(x => x != "127.0.0.2"))
     throw new Exception("Zero-weight route still received new connections: " + string.Join(", ", sources));
 
+await proxy.StartAsync(new[] { ("127.0.0.1", 1), ("127.0.0.2", 1) });
+if (proxy.RouteStatuses.Any(x => x.DownloadedBytes != 0 || x.UploadedBytes != 0 || x.SuccessfulConnections != 0))
+    throw new Exception("Per-boost traffic evidence was not reset for a new boost.");
+await proxy.StopAsync();
+
 Console.WriteLine("PASS: dual-link rotation and live zero-weight switching: " + string.Join(", ", sources));
 Console.WriteLine("PASS: successful routes expose latency, app traffic, and live combined bandwidth state");
+Console.WriteLine("PASS: per-boost contribution evidence resets between boosts");
 
 var authServer = new TcpListener(IPAddress.Loopback, 0);
 authServer.Start();
