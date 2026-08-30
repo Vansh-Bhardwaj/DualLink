@@ -2,6 +2,10 @@
 
 All notable DualLink changes are recorded here. Versions follow semantic versioning.
 
+## 3.0.0-dev.5 - 2026-08-30
+
+- Development checkpoint for accurate draining-route accounting and long-session coverage.
+
 ## 3.0.0-dev.4 - 2026-08-30
 
 - Application selections now update the filter in place while the local proxy and established downloads keep running; the original recovery state remains intact.
