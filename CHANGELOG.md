@@ -2,6 +2,10 @@
 
 All notable DualLink changes are recorded here. Versions follow semantic versioning.
 
+## 3.0.0-dev.4 - 2026-08-30
+
+- Development checkpoint for interruption-free application target updates.
+
 ## 3.0.0-dev.3 - 2026-08-30
 
 - Added a plain-language “This boost” summary with byte-accurate download, upload, and successful-connection contribution for each link, plus regression coverage that proves the evidence resets for every boost.
