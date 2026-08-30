@@ -130,8 +130,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     };
     public ObservableCollection<RoutingModeOption> RoutingModeOptions { get; } = new()
     {
-        new RoutingModeOption { Mode = RoutingMode.Smart, DisplayName = "Smart", Description = "Uses the freer healthy connection" },
-        new RoutingModeOption { Mode = RoutingMode.Balanced, DisplayName = "Balanced", Description = "Follows your connection shares" },
+        new RoutingModeOption { Mode = RoutingMode.Smart, DisplayName = "Smart", Description = "Adapts to live load and route limits" },
+        new RoutingModeOption { Mode = RoutingMode.Balanced, DisplayName = "Balanced", Description = "Follows each route's speed limit" },
         new RoutingModeOption { Mode = RoutingMode.Failover, DisplayName = "Backup", Description = "Ethernet first, Wi-Fi if it fails" }
     };
     public ObservableCollection<UpdateChannelOption> UpdateChannelOptions { get; } = new()
@@ -347,8 +347,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         var ethernetId = SelectedEthernet?.Id ?? _settings.EthernetId;
         var wifiId = SelectedWifi?.Id ?? _settings.WifiId;
-        var ethernetWeight = SelectedEthernet?.Weight ?? _settings.EthernetWeight;
-        var wifiWeight = SelectedWifi?.Weight ?? _settings.WifiWeight;
+        var ethernetControl = SelectedEthernet?.RouteControlMbps ?? SavedRouteControl(_settings.EthernetWeight, _settings.EthernetSpeedLimitMbps);
+        var wifiControl = SelectedWifi?.RouteControlMbps ?? SavedRouteControl(_settings.WifiWeight, _settings.WifiSpeedLimitMbps);
         var discovered = NetworkDiscovery.FindInternetLinks();
         _loadingSettings = true;
         try
@@ -360,8 +360,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
             _selectedEthernet = EthernetLinks.FirstOrDefault(x => x.Id == ethernetId) ?? EthernetLinks.FirstOrDefault();
             _selectedWifi = WifiLinks.FirstOrDefault(x => x.Id == wifiId) ?? WifiLinks.FirstOrDefault();
-            if (_selectedEthernet is not null) _selectedEthernet.Weight = ethernetWeight;
-            if (_selectedWifi is not null) _selectedWifi.Weight = wifiWeight;
+            if (_selectedEthernet is not null) _selectedEthernet.RouteControlMbps = ethernetControl;
+            if (_selectedWifi is not null) _selectedWifi.RouteControlMbps = wifiControl;
             if (_selectedEthernet?.Weight == 0 && _selectedWifi?.Weight == 0 && _selectedEthernet is not null)
                 _selectedEthernet.Weight = 1;
             OnPropertyChanged(nameof(SelectedEthernet));
@@ -375,6 +375,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (logDiscovery)
             Log($"Detected {EthernetLinks.Count} Ethernet and {WifiLinks.Count} Wi-Fi internet link(s)");
     }
+
+    private static double SavedRouteControl(int legacyWeight, int speedLimitMbps) => legacyWeight <= 0
+        ? 0
+        : speedLimitMbps <= 0 ? LinkInfo.FullSpeedControlMbps : Math.Min(speedLimitMbps, LinkInfo.FullSpeedControlMbps - 5);
 
     private void LoadPreviewAdapters()
     {
@@ -621,11 +625,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             {
                 _settings.EthernetId = SelectedEthernet.Id;
                 _settings.EthernetWeight = SelectedEthernet.Weight;
+                _settings.EthernetSpeedLimitMbps = SelectedEthernet.SpeedLimitMbps;
             }
             if (SelectedWifi is not null)
             {
                 _settings.WifiId = SelectedWifi.Id;
                 _settings.WifiWeight = SelectedWifi.Weight;
+                _settings.WifiSpeedLimitMbps = SelectedWifi.SpeedLimitMbps;
             }
             _settings.CloseToTray = CloseToTray;
             _settings.BandwidthLimitMbps = SelectedBandwidthOption?.Mbps ?? 0;
@@ -699,6 +705,19 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private void WifiWeightUp_Click(object sender, RoutedEventArgs e) => ChangeWeight(SelectedWifi, 1);
     private void EthernetOnly_Click(object sender, RoutedEventArgs e) => UseOnly(SelectedEthernet, SelectedWifi);
     private void WifiOnly_Click(object sender, RoutedEventArgs e) => UseOnly(SelectedWifi, SelectedEthernet);
+    private void RouteControl_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_loadingSettings || !IsInitialized) return;
+        var changed = ReferenceEquals(sender, EthernetRouteSlider) ? SelectedEthernet : SelectedWifi;
+        if (changed is null) return;
+        changed.RouteControlMbps = e.NewValue;
+        if (SelectedEthernet is { Weight: 0 } && SelectedWifi is { Weight: 0 })
+        {
+            changed.RouteControlMbps = 5;
+            Log("Keep at least one connection on");
+        }
+        ApplyRouteMix();
+    }
     private async void ProfileSelection_Click(object sender, RoutedEventArgs e)
     {
         SaveSettings();
@@ -816,9 +835,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         var routes = new List<RouteDefinition>(2);
         if (SelectedEthernet is { Weight: > 0 } ethernet)
-            routes.Add(new RouteDefinition(ethernet.Address, ethernet.Weight, true, "Ethernet"));
+            routes.Add(new RouteDefinition(ethernet.Address, 1, true, "Ethernet", ethernet.SpeedLimitMbps));
         if (SelectedWifi is { Weight: > 0 } wifi)
-            routes.Add(new RouteDefinition(wifi.Address, wifi.Weight, false, "Wi-Fi"));
+            routes.Add(new RouteDefinition(wifi.Address, 1, false, "Wi-Fi", wifi.SpeedLimitMbps));
         if (routes.Count == 0)
             throw new InvalidOperationException("Keep at least one connected route enabled.");
         return routes.ToArray();

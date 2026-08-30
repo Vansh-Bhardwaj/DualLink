@@ -6,6 +6,9 @@ All notable DualLink changes are recorded here. Versions follow semantic version
 
 - Turning a link off now keeps its existing sessions visible as draining, continues byte-accurate accounting until they finish, and still prevents new connections from using that link.
 - Added a 120-connection soak test that proves exact connection accounting and complete client-task cleanup after concurrent traffic.
+- Replaced the misleading route-share buttons with independent 0–500 Mbps route controls; Off disables new sessions, Full removes the cap, and every intermediate value throttles that route's active download and upload traffic immediately.
+- Made Balanced routing distribute new connections in proportion to each route's live speed setting, while Smart routing uses the same setting in its load score.
+- Simplified the connection pane to compact route sliders plus Automatic, Mode, and Total limit controls.
 
 ## 3.0.0-dev.4 - 2026-08-30
 

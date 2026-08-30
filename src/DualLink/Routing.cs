@@ -18,13 +18,14 @@ public sealed class RoutingModeOption
     public override string ToString() => DisplayName;
 }
 
-public readonly record struct RouteDefinition(string Address, int Weight, bool IsPrimary = false, string? Name = null);
+public readonly record struct RouteDefinition(string Address, int Weight, bool IsPrimary = false, string? Name = null, int SpeedLimitMbps = 0);
 
 public readonly record struct RouteStatus(
     string Address,
     string Name,
     int Weight,
     bool AcceptingNewConnections,
+    int SpeedLimitMbps,
     int ActiveConnections,
     int ConsecutiveFailures,
     DateTime UnhealthyUntilUtc,

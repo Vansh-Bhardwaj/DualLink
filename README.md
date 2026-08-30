@@ -24,13 +24,13 @@ DualLink leaves normal Windows routing alone for every application you have not 
 1. Connect Ethernet and Wi-Fi/hotspot.
 2. Pick each connection. Wi-Fi choices show the connected network or hotspot name.
 3. Choose the applications and select **Enable boost**.
-4. Use **Use this only** or lower a route to **Off** when you want new connections on one link. Existing connections are left alone and shown as draining until they finish.
-5. Optionally choose one combined bandwidth limit to leave room for streaming, calls, or browsing. It covers download and upload traffic and changes live.
+4. Drag either route from **Off** through an exact Mbps cap to **Full**. Changes throttle that route's existing download and upload traffic immediately; Off leaves its current connections draining but sends no new ones there. Select **Only** to move all new connections to that route.
+5. Optionally choose one total limit to leave room for streaming, calls, or browsing. It applies after the independent route limits and covers download plus upload traffic.
 6. Close the window to keep DualLink in the notification area. Hover for live combined speed, connection quality, and session context, or right-click for the compact DualLink status menu. Use **Exit and restore** to return the filter to its previous configuration.
 
 The Details drawer explains filter readiness, route quality, and whether active sessions have actually used both connections. **This boost** shows the real download, upload, and successful-connection contribution from Ethernet and Wi-Fi; these local counters reset whenever a new boost begins. **Check connections** verifies each selected route, DNS, route independence, and application filtering in plain language. Technical activity remains hidden until requested. The default browser is detected from Windows settings and added automatically. **Add application** offers visible running apps first, with executable browsing as a fallback. Custom applications are matched by their full executable path so another program with the same filename is not selected accidentally; adding the same executable again selects its existing row, and custom rows can be removed directly. Changing the chosen applications during a boost reloads only the local filter, so established proxied downloads are not closed.
 
-While boosting, route speeds, the one-minute sparkline, and tray speed use byte counters from DualLink's own proxy, so they represent selected-application traffic rather than unrelated Windows activity. While idle, they show ordinary adapter activity. Settings can check either substantial Stable releases or development Preview tags, but DualLink never downloads or installs an update silently.
+While boosting, route speeds, the one-minute sparkline, and tray speed use byte counters from DualLink's own proxy, so they represent selected-application traffic rather than unrelated Windows activity. While idle, they show ordinary adapter activity. Route speed sliders act on active proxy traffic without restarting the filter, proxy, or application. Settings can check either substantial Stable releases or development Preview tags, but DualLink never downloads or installs an update silently.
 
 <details>
 <summary>Settings and diagnostics stay out of the way until requested</summary>

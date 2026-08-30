@@ -49,9 +49,11 @@ public sealed class AppProfile : INotifyPropertyChanged
 
 public sealed class LinkInfo : INotifyPropertyChanged
 {
+    public const int FullSpeedControlMbps = 500;
     private double _downloadMbps;
     private double _uploadMbps;
     private int _weight = 1;
+    private double _routeControlMbps = FullSpeedControlMbps;
 
     public required string Id { get; init; }
     public required string Name { get; init; }
@@ -78,11 +80,36 @@ public sealed class LinkInfo : INotifyPropertyChanged
     public int Weight
     {
         get => _weight;
-        set { var next = Math.Clamp(value, 0, 10); if (_weight != next) { _weight = next; OnPropertyChanged(); OnPropertyChanged(nameof(WeightText)); OnPropertyChanged(nameof(IsEnabled)); } }
+        set
+        {
+            var enabled = value > 0;
+            if (!enabled) RouteControlMbps = 0;
+            else if (_routeControlMbps <= 0) RouteControlMbps = FullSpeedControlMbps;
+        }
+    }
+
+    public double RouteControlMbps
+    {
+        get => _routeControlMbps;
+        set
+        {
+            var next = Math.Clamp(Math.Round(value / 5d) * 5d, 0d, FullSpeedControlMbps);
+            if (Math.Abs(_routeControlMbps - next) < 0.1) return;
+            _routeControlMbps = next;
+            _weight = next <= 0 ? 0 : 1;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(RouteControlText));
+            OnPropertyChanged(nameof(SpeedLimitMbps));
+            OnPropertyChanged(nameof(Weight));
+            OnPropertyChanged(nameof(WeightText));
+            OnPropertyChanged(nameof(IsEnabled));
+        }
     }
 
     public string SpeedText => $"↓ {DownloadMbps:0.0}  ↑ {UploadMbps:0.0}";
     public string WeightText => Weight == 0 ? "Off" : Weight == 1 ? "1 share" : $"{Weight} shares";
+    public int SpeedLimitMbps => RouteControlMbps >= FullSpeedControlMbps ? 0 : (int)RouteControlMbps;
+    public string RouteControlText => RouteControlMbps <= 0 ? "Off" : SpeedLimitMbps == 0 ? "Full" : $"{SpeedLimitMbps} Mbps";
     public bool IsEnabled => Weight > 0;
     public string DisplayName => string.IsNullOrWhiteSpace(NetworkName) ? Name : NetworkName;
     public string DetailText => string.IsNullOrWhiteSpace(NetworkName) ? Description : $"{Name} · {Description}";
@@ -103,6 +130,8 @@ public sealed class UserSettings
     public string? WifiId { get; set; }
     public int EthernetWeight { get; set; } = 2;
     public int WifiWeight { get; set; } = 5;
+    public int EthernetSpeedLimitMbps { get; set; }
+    public int WifiSpeedLimitMbps { get; set; }
     public bool CloseToTray { get; set; } = true;
     public int BandwidthLimitMbps { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]

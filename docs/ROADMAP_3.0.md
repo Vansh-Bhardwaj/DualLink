@@ -10,7 +10,7 @@ DualLink 3.0 focuses on making combined-routing behavior understandable and depe
 4. **Lower idle cost** — keep background polling, allocations, helper processes, and retained transfer state bounded while preserving automatic behavior.
 5. **Approachable controls** — keep primary actions understandable without exposing IP addresses or technical logs unless requested.
 
-The first development checkpoints established app-scoped route accounting, an on-demand running-application picker, an understandable per-boost contribution summary, live application-target updates that preserve established proxy transfers, and accurate draining-route evidence under concurrent load. The next work concentrates on repeated network-recovery cycles while continuing to lower background cost.
+The development checkpoints established app-scoped route accounting, an on-demand running-application picker, an understandable per-boost contribution summary, live application-target updates, accurate draining-route evidence under concurrent load, and immediate per-route speed control. Stable preparation now concentrates on the release audit and repeated recovery verification.
 
 ## Intentional exclusions
 

@@ -140,14 +140,14 @@
               <ComboBox Grid.Row="1" ItemsSource="{Binding EthernetLinks}" SelectedItem="{Binding SelectedEthernet}"
                         ItemTemplate="{StaticResource LinkOptionTemplate}" Margin="15,8,0,0" Height="32" />
               <Grid Grid.Row="2" Margin="15,9,0,0">
-                <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                <Button Content="Use this only" Style="{StaticResource QuietButton}" HorizontalAlignment="Left" Padding="0,4"
+                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition /><ColumnDefinition Width="58" /></Grid.ColumnDefinitions>
+                <Button Content="Only" Style="{StaticResource QuietButton}" HorizontalAlignment="Left" Padding="0,4" Margin="0,0,9,0"
                         ToolTip="Route new target connections through Ethernet only" Click="EthernetOnly_Click" />
-                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                  <Button Content="−" Style="{StaticResource IconButton}" Width="28" Height="28" Padding="0" Click="EthernetWeightDown_Click" />
-                  <TextBlock Text="{Binding SelectedEthernet.WeightText}" Width="58" TextAlignment="Center" VerticalAlignment="Center" FontWeight="Medium" FontSize="10.5" />
-                  <Button Content="+" Style="{StaticResource IconButton}" Width="28" Height="28" Padding="0" Click="EthernetWeightUp_Click" />
-                </StackPanel>
+                <Slider x:Name="EthernetRouteSlider" Grid.Column="1" Style="{StaticResource RouteSlider}"
+                        Value="{Binding SelectedEthernet.RouteControlMbps, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                        ValueChanged="RouteControl_ValueChanged" ToolTip="0 turns Ethernet off · Full removes its speed limit" />
+                <TextBlock Grid.Column="2" Text="{Binding SelectedEthernet.RouteControlText}" TextAlignment="Right"
+                           VerticalAlignment="Center" FontWeight="Medium" FontSize="10.5" />
               </Grid>
             </Grid>
 
@@ -166,14 +166,14 @@
               <ComboBox x:Name="WifiAdapterPicker" Grid.Row="1" ItemsSource="{Binding WifiLinks}" SelectedItem="{Binding SelectedWifi}"
                         ItemTemplate="{StaticResource LinkOptionTemplate}" Margin="15,8,0,0" Height="32" />
               <Grid Grid.Row="2" Margin="15,9,0,0">
-                <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                <Button Content="Use this only" Style="{StaticResource QuietButton}" HorizontalAlignment="Left" Padding="0,4"
+                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition /><ColumnDefinition Width="58" /></Grid.ColumnDefinitions>
+                <Button Content="Only" Style="{StaticResource QuietButton}" HorizontalAlignment="Left" Padding="0,4" Margin="0,0,9,0"
                         ToolTip="Route new target connections through Wi-Fi only" Click="WifiOnly_Click" />
-                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                  <Button Content="−" Style="{StaticResource IconButton}" Width="28" Height="28" Padding="0" Click="WifiWeightDown_Click" />
-                  <TextBlock Text="{Binding SelectedWifi.WeightText}" Width="58" TextAlignment="Center" VerticalAlignment="Center" FontWeight="Medium" FontSize="10.5" />
-                  <Button Content="+" Style="{StaticResource IconButton}" Width="28" Height="28" Padding="0" Click="WifiWeightUp_Click" />
-                </StackPanel>
+                <Slider x:Name="WifiRouteSlider" Grid.Column="1" Style="{StaticResource RouteSlider}"
+                        Value="{Binding SelectedWifi.RouteControlMbps, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                        ValueChanged="RouteControl_ValueChanged" ToolTip="0 turns Wi-Fi off · Full removes its speed limit" />
+                <TextBlock Grid.Column="2" Text="{Binding SelectedWifi.RouteControlText}" TextAlignment="Right"
+                           VerticalAlignment="Center" FontWeight="Medium" FontSize="10.5" />
               </Grid>
             </Grid>
 
@@ -181,36 +181,26 @@
 
             <Grid Grid.Row="6" Margin="0,14,0,0">
               <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-              <StackPanel>
-                <TextBlock Text="Start automatically" FontWeight="Medium" />
-                <TextBlock Text="Boost when one of your chosen apps opens" Style="{StaticResource CaptionText}" Margin="0,2,14,0" TextWrapping="Wrap" />
-              </StackPanel>
+              <TextBlock Text="Automatic" FontWeight="Medium" VerticalAlignment="Center" />
               <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding AutoBoost, Mode=TwoWay}"
                         Click="AutoBoost_Click" VerticalAlignment="Center" />
             </Grid>
 
             <Grid Grid.Row="8">
               <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="112" /></Grid.ColumnDefinitions>
-              <StackPanel>
-                <TextBlock Text="Connection behavior" FontWeight="Medium" />
-                <TextBlock Text="{Binding RoutingModeDescription}" Style="{StaticResource CaptionText}" Margin="0,2,12,0" TextWrapping="Wrap" />
-              </StackPanel>
+              <TextBlock Text="Mode" FontWeight="Medium" VerticalAlignment="Center" />
               <ComboBox Grid.Column="1" ItemsSource="{Binding RoutingModeOptions}" SelectedItem="{Binding SelectedRoutingModeOption, Mode=TwoWay}"
                         Height="32" VerticalAlignment="Center" />
             </Grid>
 
             <Grid Grid.Row="10">
               <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="112" /></Grid.ColumnDefinitions>
-              <StackPanel>
-                <TextBlock Text="Bandwidth limit" FontWeight="Medium" />
-                <TextBlock Text="Caps total download and upload traffic" Style="{StaticResource CaptionText}" Margin="0,2,12,0" TextWrapping="Wrap" />
-              </StackPanel>
+              <TextBlock Text="Total limit" FontWeight="Medium" VerticalAlignment="Center" />
               <ComboBox Grid.Column="1" ItemsSource="{Binding BandwidthOptions}" SelectedItem="{Binding SelectedBandwidthOption, Mode=TwoWay}"
                         Height="32" VerticalAlignment="Center" />
             </Grid>
 
-            <TextBlock Grid.Row="12" Text="Turning a connection off only affects new sessions. Active downloads stay connected."
-                       Style="{StaticResource CaptionText}" TextWrapping="Wrap" LineHeight="16" />
+            <TextBlock Grid.Row="12" Text="Route limits apply live." Style="{StaticResource CaptionText}" />
           </Grid>
         </Border>
 

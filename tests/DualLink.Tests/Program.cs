@@ -210,6 +210,12 @@ var friendlyLink = new LinkInfo
 };
 if (friendlyLink.ToString() != "Phone hotspot" || friendlyLink.DetailText != "Wi-Fi · Wireless adapter")
     throw new Exception("Friendly network labels regressed.");
+friendlyLink.RouteControlMbps = 75;
+if (friendlyLink.SpeedLimitMbps != 75 || friendlyLink.Weight != 1 || friendlyLink.RouteControlText != "75 Mbps")
+    throw new Exception("Per-route Mbps control did not expose its live limit.");
+friendlyLink.RouteControlMbps = LinkInfo.FullSpeedControlMbps;
+if (friendlyLink.SpeedLimitMbps != 0 || friendlyLink.RouteControlText != "Full")
+    throw new Exception("Full route speed did not remove throttling.");
 
 Console.WriteLine("PASS: adapter dropdown uses friendly network labels");
 
@@ -261,6 +267,46 @@ await using (var drainProxy = new Socks5Balancer(0, _ => { }, credentials))
 }
 drainServer.Stop();
 Console.WriteLine("PASS: zero-weight routes drain existing transfers and retain their traffic evidence");
+
+const int routeLimitBlockSize = 512 * 1024;
+var routeLimitServer = new TcpListener(IPAddress.Any, 0);
+routeLimitServer.Start();
+var routeLimitServerPort = ((IPEndPoint)routeLimitServer.LocalEndpoint).Port;
+var routeLimitServerTask = Task.Run(async () =>
+{
+    using var accepted = await routeLimitServer.AcceptTcpClientAsync(cts.Token);
+    var stream = accepted.GetStream();
+    var signal = new byte[1];
+    var block = new byte[routeLimitBlockSize];
+    await stream.ReadExactlyAsync(signal, cts.Token);
+    await stream.WriteAsync(block, cts.Token);
+    await stream.ReadExactlyAsync(signal, cts.Token);
+    await stream.WriteAsync(block, cts.Token);
+}, cts.Token);
+await using (var routeLimitProxy = new Socks5Balancer(0, _ => { }, credentials))
+{
+    await routeLimitProxy.StartAsync(new[] { new RouteDefinition("127.0.0.1", 1, true, "Ethernet", 2) });
+    using var tunnel = await OpenTunnelAsync(routeLimitProxy.BoundPort, routeLimitServerPort, cts.Token, credentials);
+    var stream = tunnel.GetStream();
+    var block = new byte[routeLimitBlockSize];
+    var slowTimer = System.Diagnostics.Stopwatch.StartNew();
+    await stream.WriteAsync(new byte[] { 1 }, cts.Token);
+    await stream.ReadExactlyAsync(block, cts.Token);
+    slowTimer.Stop();
+
+    routeLimitProxy.UpdateSources(new[] { new RouteDefinition("127.0.0.1", 1, true, "Ethernet", 20) }, RoutingMode.Smart);
+    if (routeLimitProxy.RouteStatuses.Single().SpeedLimitMbps != 20)
+        throw new Exception("The active route did not accept its new speed limit.");
+    var fastTimer = System.Diagnostics.Stopwatch.StartNew();
+    await stream.WriteAsync(new byte[] { 2 }, cts.Token);
+    await stream.ReadExactlyAsync(block, cts.Token);
+    fastTimer.Stop();
+    await routeLimitServerTask;
+    if (slowTimer.Elapsed < TimeSpan.FromSeconds(1.2) || fastTimer.Elapsed >= slowTimer.Elapsed / 2)
+        throw new Exception($"Live route limit did not change active-transfer pacing: slow {slowTimer.Elapsed.TotalMilliseconds:0} ms, fast {fastTimer.Elapsed.TotalMilliseconds:0} ms.");
+}
+routeLimitServer.Stop();
+Console.WriteLine("PASS: per-route speed changes apply immediately to an active transfer");
 
 const int soakConnections = 120;
 var soakSources = new ConcurrentBag<string>();
