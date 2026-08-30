@@ -10,16 +10,16 @@ DualLink 3.0 focuses on making combined-routing behavior understandable and depe
 4. **Lower idle cost** — keep background polling, allocations, helper processes, and retained transfer state bounded while preserving automatic behavior.
 5. **Approachable controls** — keep primary actions understandable without exposing IP addresses or technical logs unless requested.
 
-The development checkpoints established app-scoped route accounting, an on-demand running-application picker, an understandable per-boost contribution summary, live application-target updates, accurate draining-route evidence under concurrent load, and immediate per-route speed control. Stable preparation now concentrates on the release audit and repeated recovery verification.
+The completed milestone includes app-scoped route accounting, an on-demand running-application picker, an understandable per-boost contribution summary, live application-target updates, accurate draining-route evidence under concurrent load, and immediate independent per-route speed control.
 
 ## Intentional exclusions
 
 - No per-application routing-setting profiles. Applications remain simple selectable targets.
-- No separate upload limiter. One aggregate bandwidth limit covers upload and download together.
+- No separate upload limiter and no combined limiter. Each route has one speed control covering its upload and download traffic together.
 - No settings import or export.
 - No automatic update download or installation.
 - No GitHub Release for development tags.
 
-## Stable 3.0 gate
+## Stable 3.0 result
 
-The normal repository release policy remains authoritative. In addition, 3.0 must prove that app-scoped traffic accounting is correct across both routes, counters remain bounded across repeated sessions, displayed evidence matches actual proxy activity, live target changes preserve established transfers, and recovery does not misreport unrelated destination failures as link failures.
+The stable milestone proves that app-scoped traffic accounting is correct across both routes, counters remain bounded across repeated sessions, displayed evidence matches actual proxy activity, live target changes preserve established transfers, higher route limits receive more new connections, active limits change without interruption, and unrelated destination failures are not misreported as link failures.

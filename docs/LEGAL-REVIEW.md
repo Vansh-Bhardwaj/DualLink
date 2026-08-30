@@ -1,6 +1,6 @@
 # Release compliance review
 
-Reviewed: 2026-08-28
+Reviewed: 2026-08-30
 
 This checklist documents the release posture; it is not legal advice.
 

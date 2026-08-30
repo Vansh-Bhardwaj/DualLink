@@ -2,6 +2,17 @@
 
 All notable DualLink changes are recorded here. Versions follow semantic versioning.
 
+## 3.0.0 - 2026-08-30
+
+- Added accurate selected-application download, upload, connection, and per-route contribution evidence for each boost.
+- Added independent live Mbps controls for Ethernet and Wi-Fi, including Off and Full speed; established transfers react without restarting the app, proxy, or filter.
+- Made a manual route-speed choice switch to Balanced mode automatically so the user's selected capacities take control immediately.
+- Made Balanced routing favor the route with the higher selected speed and kept Smart routing aware of each route's capacity, quality, and active load.
+- Added a running-application picker and live target changes that preserve established transfers.
+- Kept turned-off routes visible while their existing connections drain, with byte-accurate accounting until completion.
+- Strengthened route/filter recovery, secure local proxy authentication, full-path application matching, watchdog validation, bounded connection cleanup, and automatic adapter refresh.
+- Simplified the main interface, kept diagnostics on demand, and improved notification-area status and controls.
+
 ## 3.0.0-dev.5 - 2026-08-30
 
 - Turning a link off now keeps its existing sessions visible as draining, continues byte-accurate accounting until they finish, and still prevents new connections from using that link.

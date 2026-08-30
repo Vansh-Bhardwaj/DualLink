@@ -716,7 +716,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             changed.RouteControlMbps = LinkInfo.FullSpeedControlMbps;
             Log("Keep at least one connection on");
         }
-        ApplyRouteMix();
+        var balanced = RoutingModeOptions.First(x => x.Mode == RoutingMode.Balanced);
+        if (SelectedRoutingModeOption?.Mode != RoutingMode.Balanced)
+        {
+            SelectedRoutingModeOption = balanced;
+            Log("Balanced mode selected for manual route speeds");
+        }
+        else ApplyRouteMix();
     }
     private async void ProfileSelection_Click(object sender, RoutedEventArgs e)
     {
