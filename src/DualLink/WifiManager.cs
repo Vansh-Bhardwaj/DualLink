@@ -7,8 +7,11 @@ public static class WifiManager
 {
     private const uint ClientVersion = 2;
     private const uint ConnectedFlag = 1;
+    private const uint NotificationSourceAcm = 0x00000008;
+    private const uint ScanCompleteNotification = 7;
+    private const uint ScanFailNotification = 8;
 
-    public static IReadOnlyList<WifiNetworkInfo> GetAvailableNetworks()
+    public static IReadOnlyList<WifiNetworkInfo> GetAvailableNetworks(bool refresh = true)
     {
         var result = new List<WifiNetworkInfo>();
         if (WlanOpenHandle(ClientVersion, IntPtr.Zero, out _, out var handle) != 0)
@@ -16,21 +19,9 @@ public static class WifiManager
 
         try
         {
-            if (WlanEnumInterfaces(handle, IntPtr.Zero, out var interfaceList) != 0)
-                return result;
-            try
-            {
-                var count = Marshal.ReadInt32(interfaceList);
-                var itemSize = Marshal.SizeOf<WlanInterfaceInfo>();
-                var cursor = IntPtr.Add(interfaceList, 8);
-                for (var index = 0; index < count; index++)
-                {
-                    var adapter = Marshal.PtrToStructure<WlanInterfaceInfo>(IntPtr.Add(cursor, index * itemSize));
-                    _ = WlanScan(handle, ref adapter.InterfaceGuid, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-                    ReadNetworks(handle, adapter, result);
-                }
-            }
-            finally { WlanFreeMemory(interfaceList); }
+            var adapters = ReadInterfaces(handle);
+            if (refresh && adapters.Count > 0) RefreshScan(handle, adapters);
+            foreach (var adapter in adapters) ReadNetworks(handle, adapter, result);
         }
         finally { WlanCloseHandle(handle, IntPtr.Zero); }
 
@@ -69,7 +60,7 @@ public static class WifiManager
                 {
                     token.ThrowIfCancellationRequested();
                     Thread.Sleep(400);
-                    var current = GetAvailableNetworks().FirstOrDefault(x =>
+                    var current = GetAvailableNetworks(refresh: false).FirstOrDefault(x =>
                         x.InterfaceId == network.InterfaceId &&
                         x.Name.Equals(network.Name, StringComparison.OrdinalIgnoreCase));
                     if (current?.IsConnected == true) return true;
@@ -78,6 +69,60 @@ public static class WifiManager
             }
             finally { WlanCloseHandle(handle, IntPtr.Zero); }
         }, token);
+    }
+
+    private static IReadOnlyList<WlanInterfaceInfo> ReadInterfaces(IntPtr handle)
+    {
+        var result = new List<WlanInterfaceInfo>();
+        if (WlanEnumInterfaces(handle, IntPtr.Zero, out var interfaceList) != 0) return result;
+        try
+        {
+            var count = Marshal.ReadInt32(interfaceList);
+            var itemSize = Marshal.SizeOf<WlanInterfaceInfo>();
+            var cursor = IntPtr.Add(interfaceList, 8);
+            for (var index = 0; index < count; index++)
+                result.Add(Marshal.PtrToStructure<WlanInterfaceInfo>(IntPtr.Add(cursor, index * itemSize)));
+        }
+        finally { WlanFreeMemory(interfaceList); }
+        return result;
+    }
+
+    private static void RefreshScan(IntPtr handle, IReadOnlyList<WlanInterfaceInfo> adapters)
+    {
+        var pending = new HashSet<Guid>(adapters.Select(x => x.InterfaceGuid));
+        using var completed = new ManualResetEventSlim(pending.Count == 0);
+        var sync = new object();
+        WlanNotificationCallback callback = (ref WlanNotificationData notification, IntPtr _) =>
+        {
+            if (notification.NotificationSource != NotificationSourceAcm ||
+                notification.NotificationCode is not (ScanCompleteNotification or ScanFailNotification)) return;
+            lock (sync)
+            {
+                pending.Remove(notification.InterfaceGuid);
+                if (pending.Count == 0) completed.Set();
+            }
+        };
+
+        if (WlanRegisterNotification(handle, NotificationSourceAcm, true, callback, IntPtr.Zero, IntPtr.Zero, out _) != 0) return;
+        try
+        {
+            foreach (var adapter in adapters)
+            {
+                var adapterId = adapter.InterfaceGuid;
+                if (WlanScan(handle, ref adapterId, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero) == 0) continue;
+                lock (sync)
+                {
+                    pending.Remove(adapterId);
+                    if (pending.Count == 0) completed.Set();
+                }
+            }
+            completed.Wait(TimeSpan.FromSeconds(4.5));
+        }
+        finally
+        {
+            _ = WlanRegisterNotification(handle, 0, true, null, IntPtr.Zero, IntPtr.Zero, out _);
+            GC.KeepAlive(callback);
+        }
     }
 
     private static void ReadNetworks(IntPtr handle, WlanInterfaceInfo adapter, ICollection<WifiNetworkInfo> output)
@@ -144,8 +189,8 @@ public static class WifiManager
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct WlanAvailableNetwork
     {
-        public Dot11Ssid Ssid;
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)] public string ProfileName;
+        public Dot11Ssid Ssid;
         public Dot11BssType BssType;
         public uint NumberOfBssids;
         [MarshalAs(UnmanagedType.Bool)] public bool NetworkConnectable;
@@ -160,6 +205,18 @@ public static class WifiManager
         public uint Flags;
         public uint Reserved;
     }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct WlanNotificationData
+    {
+        public uint NotificationSource;
+        public uint NotificationCode;
+        public Guid InterfaceGuid;
+        public uint DataSize;
+        public IntPtr Data;
+    }
+
+    private delegate void WlanNotificationCallback(ref WlanNotificationData notificationData, IntPtr context);
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct WlanConnectionParameters
@@ -182,6 +239,10 @@ public static class WifiManager
     private static extern uint WlanGetAvailableNetworkList(IntPtr clientHandle, ref Guid interfaceGuid, uint flags, IntPtr reserved, out IntPtr availableNetworkList);
     [DllImport("wlanapi.dll")]
     private static extern uint WlanScan(IntPtr clientHandle, ref Guid interfaceGuid, IntPtr dot11Ssid, IntPtr ieData, IntPtr reserved);
+    [DllImport("wlanapi.dll")]
+    private static extern uint WlanRegisterNotification(IntPtr clientHandle, uint notificationSource,
+        [MarshalAs(UnmanagedType.Bool)] bool ignoreDuplicate, WlanNotificationCallback? callback,
+        IntPtr callbackContext, IntPtr reserved, out uint previousNotificationSource);
     [DllImport("wlanapi.dll", CharSet = CharSet.Unicode)]
     private static extern uint WlanConnect(IntPtr clientHandle, ref Guid interfaceGuid, ref WlanConnectionParameters connectionParameters, IntPtr reserved);
     [DllImport("wlanapi.dll")]

@@ -221,9 +221,10 @@ if (!savedWifi.IsSaved || savedWifi.ActionText != "Connect" || newWifi.IsSaved |
     throw new Exception("Wi-Fi network choices did not distinguish saved and password-required networks.");
 Console.WriteLine("PASS: Wi-Fi picker keeps saved-profile switching separate from Windows password entry");
 var visibleWifiNetworks = WifiManager.GetAvailableNetworks();
-if (visibleWifiNetworks.Any(x => string.IsNullOrWhiteSpace(x.Name) || x.SignalQuality > 100))
+if (visibleWifiNetworks.Any(x => string.IsNullOrWhiteSpace(x.Name) || x.Name.Contains('\0') || x.SignalQuality > 100))
     throw new Exception("Native Wi-Fi discovery returned an invalid network entry.");
-Console.WriteLine($"PASS: native Windows Wi-Fi discovery completed with {visibleWifiNetworks.Count} visible network(s)");
+Console.WriteLine($"PASS: native Windows Wi-Fi discovery completed with {visibleWifiNetworks.Count} visible network(s): " +
+    string.Join(", ", visibleWifiNetworks.Select(x => x.Name)));
 
 var detectedJDownloader = ApplicationProfileDiscovery.FindJDownloader();
 if (detectedJDownloader is not null &&

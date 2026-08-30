@@ -1,9 +1,9 @@
 <Project>
   <PropertyGroup>
-    <VersionPrefix>3.1.0</VersionPrefix>
-    <AssemblyVersion>3.1.0.0</AssemblyVersion>
-    <FileVersion>3.1.0.0</FileVersion>
-    <InformationalVersion>3.1.0</InformationalVersion>
+    <VersionPrefix>3.1.1</VersionPrefix>
+    <AssemblyVersion>3.1.1.0</AssemblyVersion>
+    <FileVersion>3.1.1.0</FileVersion>
+    <InformationalVersion>3.1.1</InformationalVersion>
     <Company>DualLink</Company>
     <Product>DualLink Application Booster</Product>
     <Copyright>Copyright © 2026 DualLink</Copyright>

@@ -1309,7 +1309,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         WifiNetworksStatusText = "Scanning…";
         try
         {
-            var networks = await Task.Run(WifiManager.GetAvailableNetworks);
+            var networks = await Task.Run(() => WifiManager.GetAvailableNetworks());
             WifiNetworks.Clear();
             foreach (var network in networks) WifiNetworks.Add(network);
             WifiNetworksStatusText = networks.Count == 0

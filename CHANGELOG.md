@@ -2,6 +2,11 @@
 
 All notable DualLink changes are recorded here. Versions follow semantic versioning.
 
+## 3.1.1 - 2026-08-31
+
+- Fixed nearby Wi-Fi names losing their first two characters by matching the native Windows structure layout exactly.
+- Wait for Windows to finish each requested Wi-Fi scan before displaying results, preventing stale or incomplete network lists.
+
 ## 3.1.0 - 2026-08-31
 
 - Added an in-app Wi-Fi network drawer using the native Windows WLAN service: saved networks connect directly, while new password entry stays in the Windows network picker.
