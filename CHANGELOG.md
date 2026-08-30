@@ -8,7 +8,7 @@ All notable DualLink changes are recorded here. Versions follow semantic version
 - Upgraded the Stable update channel from a release-page link to a confirmed download, exact release-asset selection, SHA-256 verification, routing restoration, and installer launch flow.
 - Kept Preview useful for inspecting development tags while reserving installable packages for substantial stable releases.
 - Added installer maintenance detection for an existing DualLink AppId with visible Update/reinstall, Repair, and Uninstall choices, while preserving the previous install path, Start menu group, and shortcut choices.
-- Detected JDownloader together with its bundled Java download engine, so the process that owns the real download connections is routed instead of only its launcher.
+- Detected supported multi-process download managers together with their background download engines, so the process that owns the real download connections is routed instead of only its launcher.
 - Made setup open DualLink in its existing installer security context, preventing the confusing second elevation failure after installation.
 
 ## 3.0.0 - 2026-08-30

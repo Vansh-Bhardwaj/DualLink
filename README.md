@@ -22,7 +22,7 @@ Normal Windows routing stays unchanged for everything you do not select. For sel
 - Independent live speed control for Ethernet and Wi-Fi, including **Off**, **Only**, and **Full speed**.
 - App-scoped routing for game launchers, browsers, download managers, and custom executables.
 - Nearby Wi-Fi discovery with direct switching to saved Windows profiles.
-- Automatic JDownloader 2 detection, including its Java download engine.
+- Automatic detection of supported multi-process download managers and their background download engines.
 - Live per-route speed, session count, and contribution history.
 - Notification-area controls, automatic recovery, and clean routing restoration on exit.
 - Stable and Preview update channels with confirmation and SHA-256 verification.
@@ -35,7 +35,7 @@ Normal Windows routing stays unchanged for everything you do not select. For sel
 4. Choose a speed for each route, or select **Full speed**. A manual choice switches to **Balanced** automatically. Changes apply live; **Off** stops new connections on that route and **Only** sends new connections through it.
 5. Close the window to keep DualLink in the notification area. Hover for live combined speed, connection quality, and session context, or right-click for the compact DualLink status menu. Use **Exit and restore** to return the filter to its previous configuration.
 
-JDownloader 2 is detected together with its bundled Java download engine. For one large file, use multiple chunks when the host supports them so separate connections can use both routes; a single ordinary TCP connection cannot be split across two internet links without a remote bonding endpoint.
+For one large file, use multiple chunks when the host supports them so separate connections can use both routes. A single ordinary TCP connection cannot be split across two internet links without a remote bonding endpoint.
 
 The Details drawer checks both routes, DNS, route independence, and filtering in plain language. Technical activity stays hidden until requested. App choices can be changed during a boost without closing established downloads.
 
@@ -52,7 +52,7 @@ The Details drawer checks both routes, DNS, route independence, and filtering in
 
 ## Safety model
 
-DualLink only filters processes the user selects. Its local proxy listens on loopback, uses fresh random credentials for each run, and is not exposed to the LAN. Disarming or exiting restores the previous ProxiFyre configuration. A small independent watchdog also restores the configuration if the UI process exits unexpectedly. Recovery paths are constrained to DualLink's own state and the expected ProxiFyre config. Adapter changes are detected automatically; an available route continues carrying new sessions while another reconnects. Turning a route off affects new connections immediately while established ones finish normally.
+DualLink only filters processes the user selects. Its local proxy listens on loopback, uses fresh random credentials for each run, and is not exposed to the LAN. Disarming or exiting restores the previous local-filter configuration. An independent watchdog also restores that configuration if the UI exits unexpectedly. Adapter changes are detected automatically; an available route continues carrying new sessions while another reconnects. Turning a route off affects new connections immediately while established ones finish normally.
 
 ## Limits
 
@@ -69,8 +69,6 @@ Developers need Windows 10/11 x64, the .NET 10 SDK, and Inno Setup 6. Run `build
 - Windows 10 or Windows 11, x64
 - Two independently routed IPv4 internet adapters
 - Administrator access for the local filter service and driver
-
-The bundled Windows Packet Filter driver is free for personal, educational, and nonprofit use. Commercial use requires a separate driver license.
 
 ## Legal and security
 
