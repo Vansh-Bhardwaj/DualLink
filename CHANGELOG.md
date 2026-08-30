@@ -2,6 +2,11 @@
 
 All notable DualLink changes are recorded here. Versions follow semantic versioning.
 
+## 3.0.0-dev.1 - 2026-08-30
+
+- Opened the DualLink 3.0 development line around accurate app-scoped traffic intelligence, clearer connection evidence, and stronger recovery behavior.
+- Kept one shared upload/download bandwidth limit and intentionally excluded per-application setting profiles and settings import/export.
+
 ## 2.3.0-dev.3 - 2026-08-29
 
 - Replaced the download-only limiter with one combined bandwidth limit shared by upload and download traffic.
