@@ -49,6 +49,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private string _prerequisiteText = "Checking";
     private DateTime _lastRateUpdateUtc = DateTime.UtcNow;
     private DateTime _nextProcessScanUtc = DateTime.MinValue;
+    private int _processScanInProgress;
     private CancellationTokenSource? _diagnosticsCts;
     private CancellationTokenSource? _wifiConnectCts;
     private CancellationTokenSource? _updateCts;
@@ -464,8 +465,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             RefreshBoostContributionProperties();
             if (now >= _nextProcessScanUtc)
             {
-                UpdateRunningProfiles();
-                _nextProcessScanUtc = now.AddSeconds(_boosting || IsVisible ? 2 : 8);
+                await UpdateRunningProfilesAsync();
+                _nextProcessScanUtc = now.AddSeconds(_boosting ? 3 : IsVisible ? 4 : 10);
             }
 
             var selected = Profiles.Where(x => x.IsSelected).ToList();
@@ -565,32 +566,48 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _tray?.Notify("DualLink recovered", "The application filter restarted and routing is active again.");
     }
 
-    private void UpdateRunningProfiles()
+    private async Task UpdateRunningProfilesAsync()
     {
-        HashSet<string> names;
-        HashSet<string> paths;
+        if (Interlocked.Exchange(ref _processScanInProgress, 1) != 0) return;
         try
         {
-            var processes = Process.GetProcesses();
-            try
-            {
-                names = processes.Select(x => x.ProcessName + ".exe").ToHashSet(StringComparer.OrdinalIgnoreCase);
-                paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var process in processes)
-                {
-                    try
-                    {
-                        var path = process.MainModule?.FileName;
-                        if (!string.IsNullOrWhiteSpace(path)) paths.Add(Path.GetFullPath(path));
-                    }
-                    catch { }
-                }
-            }
-            finally { foreach (var process in processes) process.Dispose(); }
+            var pathProcessNames = Profiles.SelectMany(x => x.ExecutablePaths)
+                .Select(Path.GetFileName)
+                .OfType<string>()
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var snapshot = await Task.Run(() => CaptureRunningProcesses(pathProcessNames));
+            foreach (var profile in Profiles)
+                profile.IsRunning = profile.Processes.Any(snapshot.Names.Contains) || profile.ExecutablePaths.Any(snapshot.Paths.Contains);
         }
-        catch { return; }
-        foreach (var profile in Profiles)
-            profile.IsRunning = profile.Processes.Any(names.Contains) || profile.ExecutablePaths.Any(paths.Contains);
+        catch { }
+        finally { Interlocked.Exchange(ref _processScanInProgress, 0); }
+    }
+
+    private static RunningProcessSnapshot CaptureRunningProcesses(IReadOnlySet<string> pathProcessNames)
+    {
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var processes = Process.GetProcesses();
+        try
+        {
+            foreach (var process in processes)
+            {
+                string processName;
+                try { processName = process.ProcessName + ".exe"; }
+                catch { continue; }
+                names.Add(processName);
+                if (!pathProcessNames.Contains(processName)) continue;
+                try
+                {
+                    var path = process.MainModule?.FileName;
+                    if (!string.IsNullOrWhiteSpace(path)) paths.Add(Path.GetFullPath(path));
+                }
+                catch { }
+            }
+        }
+        finally { foreach (var process in processes) process.Dispose(); }
+        return new RunningProcessSnapshot(names, paths);
     }
 
     private async Task StartBoostAsync(IReadOnlyCollection<AppProfile> selected)
@@ -783,7 +800,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         await _controllerGate.WaitAsync();
         try
         {
-            UpdateRunningProfiles();
+            await UpdateRunningProfilesAsync();
             var selected = Profiles.Where(x => x.IsSelected).ToList();
             var shouldBoost = _armed && selected.Count > 0 && (!AutoBoost || selected.Any(x => x.IsRunning));
             if (_boosting && shouldBoost)
@@ -1575,5 +1592,6 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 
     private readonly record struct TrafficSample(DateTime TimestampUtc, double EthernetMbps, double WifiMbps);
+    private sealed record RunningProcessSnapshot(HashSet<string> Names, HashSet<string> Paths);
     private readonly record struct RouteTrafficBaseline(long DownloadedBytes, long UploadedBytes);
 }

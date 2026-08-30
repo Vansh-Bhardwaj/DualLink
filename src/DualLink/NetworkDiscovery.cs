@@ -8,11 +8,18 @@ namespace DualLink;
 
 public static class NetworkDiscovery
 {
+    private static readonly object InterfaceCacheLock = new();
+    private static IReadOnlyDictionary<string, NetworkInterface> _rateInterfaces =
+        new Dictionary<string, NetworkInterface>(StringComparer.OrdinalIgnoreCase);
+    private static DateTime _rateInterfacesExpireUtc = DateTime.MinValue;
+
     public static List<LinkInfo> FindInternetLinks()
     {
         var links = new List<LinkInfo>();
         var wifiNetworks = FindConnectedWifiNetworks();
-        foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
+        var interfaces = NetworkInterface.GetAllNetworkInterfaces();
+        CacheRateInterfaces(interfaces);
+        foreach (var nic in interfaces)
         {
             if (nic.OperationalStatus != OperationalStatus.Up ||
                 nic.NetworkInterfaceType is NetworkInterfaceType.Loopback or NetworkInterfaceType.Tunnel)
@@ -48,7 +55,7 @@ public static class NetworkDiscovery
 
     public static void UpdateRates(IEnumerable<LinkInfo> links, double elapsedSeconds)
     {
-        var interfaces = NetworkInterface.GetAllNetworkInterfaces().ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
+        var interfaces = GetRateInterfaces();
         foreach (var link in links)
         {
             if (!interfaces.TryGetValue(link.Id, out var nic)) continue;
@@ -64,6 +71,27 @@ public static class NetworkDiscovery
             }
             catch { link.DownloadMbps = 0; link.UploadMbps = 0; }
         }
+    }
+
+    private static IReadOnlyDictionary<string, NetworkInterface> GetRateInterfaces()
+    {
+        lock (InterfaceCacheLock)
+        {
+            if (DateTime.UtcNow < _rateInterfacesExpireUtc) return _rateInterfaces;
+            CacheRateInterfacesCore(NetworkInterface.GetAllNetworkInterfaces());
+            return _rateInterfaces;
+        }
+    }
+
+    private static void CacheRateInterfaces(IEnumerable<NetworkInterface> interfaces)
+    {
+        lock (InterfaceCacheLock) CacheRateInterfacesCore(interfaces);
+    }
+
+    private static void CacheRateInterfacesCore(IEnumerable<NetworkInterface> interfaces)
+    {
+        _rateInterfaces = interfaces.ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
+        _rateInterfacesExpireUtc = DateTime.UtcNow.AddSeconds(30);
     }
 
     public static async Task<ConnectionCheckResult> CheckConnectivityAsync(LinkInfo? link, CancellationToken token)

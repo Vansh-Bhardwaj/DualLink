@@ -2,6 +2,13 @@
 
 All notable DualLink changes are recorded here. Versions follow semantic versioning.
 
+## 4.0.0-alpha.2 - 2026-08-31
+
+- Moved running-application discovery off the interface thread so inspecting Windows processes cannot stall animation, input, or scrolling.
+- Inspect executable paths only for process names that require exact-path matching instead of opening every running process.
+- Reuse network-adapter handles between dashboard samples while retaining immediate refresh after Windows reports a network change.
+- Reduced background application scans while keeping active download detection responsive.
+
 ## 4.0.0-alpha.1 - 2026-08-31
 
 - Added a Smart-mode compatibility guard that keeps startup sign-in traffic on the primary connection before using both links.
