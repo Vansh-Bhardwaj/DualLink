@@ -2,6 +2,10 @@
 
 All notable DualLink changes are recorded here. Versions follow semantic versioning.
 
+## 3.0.0-dev.2 - 2026-08-30
+
+- Added an on-demand running-application picker with a file-browse fallback, keeping local process discovery out of background polling and documenting its privacy behavior.
+
 ## 3.0.0-dev.1 - 2026-08-30
 
 - Opened the DualLink 3.0 development line around accurate app-scoped traffic intelligence, clearer connection evidence, and stronger recovery behavior.
@@ -10,7 +14,6 @@ All notable DualLink changes are recorded here. Versions follow semantic version
 - Added per-route successful-connection evidence so Details and the tray can confirm when both links have actually carried selected-app sessions.
 - Replaced session-count guesses in diagnostics with authoritative per-route contribution evidence and a plain explanation of single-connection limits.
 - Added duplicate-safe custom application selection and a quiet Remove action for custom targets, without adding per-application settings profiles.
-- Added an on-demand running-application picker with a file-browse fallback, keeping local process discovery out of background polling and documenting its privacy behavior.
 
 ## 2.3.0-dev.3 - 2026-08-29
 
