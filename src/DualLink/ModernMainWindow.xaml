@@ -415,6 +415,49 @@
                        Style="{StaticResource CaptionText}" TextWrapping="Wrap" />
           </Grid>
         </Border>
+
+        <Border x:Name="AddAppDrawer" Grid.ColumnSpan="2" Width="420" HorizontalAlignment="Right"
+                Background="#292A30" BorderBrush="#50515B" BorderThickness="1,0,0,0"
+                Padding="23" Visibility="Collapsed" Panel.ZIndex="20">
+          <Grid>
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto" /><RowDefinition Height="24" /><RowDefinition Height="Auto" />
+              <RowDefinition Height="14" /><RowDefinition Height="*" /><RowDefinition Height="18" /><RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <Grid>
+              <StackPanel>
+                <TextBlock Text="Add application" Style="{StaticResource SectionTitle}" />
+                <TextBlock Text="Choose an app that is already open" Style="{StaticResource CaptionText}" Margin="0,4,0,0" />
+              </StackPanel>
+              <Button Content="×" HorizontalAlignment="Right" VerticalAlignment="Top" Style="{StaticResource IconButton}" Click="CloseDrawer_Click" />
+            </Grid>
+            <TextBlock Grid.Row="2" Text="{Binding RunningApplicationsStatusText}" Foreground="{StaticResource SecondaryBrush}" />
+            <Border Grid.Row="4" Background="{StaticResource CanvasBrush}" BorderBrush="{StaticResource DividerBrush}"
+                    BorderThickness="1" CornerRadius="9" ClipToBounds="True">
+              <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <ItemsControl ItemsSource="{Binding RunningApplications}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Grid Margin="15,12" ToolTip="{Binding ExecutablePath}">
+                        <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <StackPanel>
+                          <TextBlock Text="{Binding DisplayName}" FontWeight="Medium" TextTrimming="CharacterEllipsis" />
+                          <TextBlock Text="{Binding Subtitle}" Style="{StaticResource CaptionText}" Margin="0,3,12,0" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                        <Button Grid.Column="1" Content="Add" VerticalAlignment="Center" Padding="12,6" Click="AddRunningApp_Click" />
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </ScrollViewer>
+            </Border>
+            <Grid Grid.Row="6">
+              <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+              <TextBlock Text="Not listed? Choose its executable file." Style="{StaticResource CaptionText}" VerticalAlignment="Center" />
+              <Button Grid.Column="1" Content="Browse…" Margin="14,0,0,0" Click="BrowseExecutable_Click" />
+            </Grid>
+          </Grid>
+        </Border>
       </Grid>
     </Grid>
   </Border>

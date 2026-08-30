@@ -18,7 +18,8 @@ public partial class App : System.Windows.Application
         if (e.Args.Length >= 2 &&
             (e.Args[0].Equals("--snapshot", StringComparison.OrdinalIgnoreCase) ||
              e.Args[0].Equals("--snapshot-settings", StringComparison.OrdinalIgnoreCase) ||
-             e.Args[0].Equals("--snapshot-picker", StringComparison.OrdinalIgnoreCase)))
+             e.Args[0].Equals("--snapshot-picker", StringComparison.OrdinalIgnoreCase) ||
+             e.Args[0].Equals("--snapshot-add", StringComparison.OrdinalIgnoreCase)))
         {
             base.OnStartup(e);
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
@@ -29,6 +30,8 @@ public partial class App : System.Windows.Application
                     preview.ShowSettingsPreview();
                 if (e.Args[0].Equals("--snapshot-picker", StringComparison.OrdinalIgnoreCase))
                     preview.ShowNetworkPickerPreview();
+                if (e.Args[0].Equals("--snapshot-add", StringComparison.OrdinalIgnoreCase))
+                    preview.ShowAddApplicationPreview();
                 await Task.Delay(400);
                 preview.Measure(new Size(preview.Width, preview.Height));
                 preview.Arrange(new Rect(0, 0, preview.Width, preview.Height));

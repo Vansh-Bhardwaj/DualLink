@@ -152,6 +152,11 @@ public sealed class BandwidthOption
     public override string ToString() => DisplayName;
 }
 
+public sealed record RunningAppInfo(string DisplayName, string ProcessName, string ExecutablePath)
+{
+    public string Subtitle => $"{ProcessName} · Running now";
+}
+
 public sealed class BoostSessionState
 {
     public bool ConfigExisted { get; set; }

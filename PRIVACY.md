@@ -15,6 +15,8 @@ DualLink stores the following under `%LOCALAPPDATA%\DualLink`:
 
 Activity messages are kept in memory for the current session. ProxiFyre may write operational logs under its installation directory. DualLink does not transmit these files.
 
+When the user opens **Add application**, DualLink locally enumerates visible running applications so they can be selected without locating an executable manually. The temporary list contains display names, process filenames, and executable paths, remains in memory, and is not transmitted. Only an application the user adds is stored in settings.
+
 ## Network behavior
 
 When armed, DualLink redirects TCP connections created by applications the user explicitly selects to a SOCKS5 balancer running only on `127.0.0.1`. The balancer then creates outbound connections through the selected local adapters to the destination requested by that application. DualLink does not decrypt, inspect, retain, or upload application payloads.

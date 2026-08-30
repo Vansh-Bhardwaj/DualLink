@@ -118,6 +118,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public ObservableCollection<LinkInfo> WifiLinks { get; } = new();
     public ObservableCollection<string> Activity { get; } = new();
     public ObservableCollection<ConnectionCheckResult> Diagnostics { get; } = new();
+    public ObservableCollection<RunningAppInfo> RunningApplications { get; } = new();
     public ObservableCollection<BandwidthOption> BandwidthOptions { get; } = new()
     {
         new BandwidthOption { Mbps = 0, DisplayName = "No limit" },
@@ -256,6 +257,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
     }
     public string VersionText => $"Version {UpdateChecker.CurrentVersion}";
+    public string RunningApplicationsStatusText => RunningApplications.Count == 0
+        ? "No visible applications are running right now."
+        : RunningApplications.Count == 1 ? "1 running application found" : $"{RunningApplications.Count} running applications found";
 
     private void LoadProfilesAndSettings()
     {
@@ -894,6 +898,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private void Details_Click(object sender, RoutedEventArgs e)
     {
         SettingsDrawer.Visibility = Visibility.Collapsed;
+        AddAppDrawer.Visibility = Visibility.Collapsed;
         DetailsDrawer.Visibility = DetailsDrawer.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
     }
 
@@ -1006,11 +1011,21 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private void Settings_Click(object sender, RoutedEventArgs e)
     {
         DetailsDrawer.Visibility = Visibility.Collapsed;
+        AddAppDrawer.Visibility = Visibility.Collapsed;
         SettingsDrawer.Visibility = SettingsDrawer.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
     }
 
     public void ShowSettingsPreview() => SettingsDrawer.Visibility = Visibility.Visible;
     public void ShowNetworkPickerPreview() => WifiAdapterPicker.IsDropDownOpen = true;
+    public void ShowAddApplicationPreview()
+    {
+        RunningApplications.Clear();
+        RunningApplications.Add(new RunningAppInfo("Example downloader", "Downloader.exe", @"C:\Apps\Downloader.exe"));
+        RunningApplications.Add(new RunningAppInfo("Media player", "Player.exe", @"C:\Apps\Player.exe"));
+        RunningApplications.Add(new RunningAppInfo("Chat application", "Chat.exe", @"C:\Apps\Chat.exe"));
+        OnPropertyChanged(nameof(RunningApplicationsStatusText));
+        AddAppDrawer.Visibility = Visibility.Visible;
+    }
     public void ShowTrayPreview()
     {
         _tray ??= new TrayManager(() => { }, () => { }, () => { });
@@ -1022,6 +1037,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         DetailsDrawer.Visibility = Visibility.Collapsed;
         SettingsDrawer.Visibility = Visibility.Collapsed;
+        AddAppDrawer.Visibility = Visibility.Collapsed;
     }
 
     private void ShowFromTray()
@@ -1040,11 +1056,30 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         Close();
     }
 
-    private async void AddExecutable_Click(object sender, RoutedEventArgs e)
+    private void AddExecutable_Click(object sender, RoutedEventArgs e)
+    {
+        DetailsDrawer.Visibility = Visibility.Collapsed;
+        SettingsDrawer.Visibility = Visibility.Collapsed;
+        RefreshRunningApplications();
+        AddAppDrawer.Visibility = Visibility.Visible;
+    }
+
+    private async void BrowseExecutable_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new OpenFileDialog { Filter = "Applications (*.exe)|*.exe", Title = "Choose an application to boost" };
         if (dialog.ShowDialog(this) != true) return;
-        var executablePath = Path.GetFullPath(dialog.FileName);
+        await AddExecutablePathAsync(dialog.FileName);
+    }
+
+    private async void AddRunningApp_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { DataContext: RunningAppInfo application }) return;
+        await AddExecutablePathAsync(application.ExecutablePath);
+    }
+
+    private async Task AddExecutablePathAsync(string path)
+    {
+        var executablePath = Path.GetFullPath(path);
         var processName = Path.GetFileName(executablePath);
         var existing = Profiles.FirstOrDefault(x => x.ExecutablePaths.Any(path =>
                 path.Equals(executablePath, StringComparison.OrdinalIgnoreCase)))
@@ -1056,16 +1091,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             SaveSettings();
             if (_boosting && selectionChanged) await RestartForSelectionChangeAsync();
             Log($"{existing.Name} is already in the application list");
+            AddAppDrawer.Visibility = Visibility.Collapsed;
             return;
         }
 
-        string? displayName = null;
-        try { displayName = FileVersionInfo.GetVersionInfo(executablePath).FileDescription; }
-        catch { }
-        if (string.IsNullOrWhiteSpace(displayName)) displayName = Path.GetFileNameWithoutExtension(dialog.FileName);
         var profile = new AppProfile
         {
-            Name = displayName,
+            Name = GetExecutableDisplayName(executablePath),
             Subtitle = "Custom application",
             Accent = "#B6C2D1",
             Processes = new List<string> { processName },
@@ -1076,6 +1108,50 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         Profiles.Add(profile);
         SaveSettings();
         Log($"Added {processName}");
+        AddAppDrawer.Visibility = Visibility.Collapsed;
+        if (_boosting) await RestartForSelectionChangeAsync();
+    }
+
+    private void RefreshRunningApplications()
+    {
+        var discovered = new Dictionary<string, RunningAppInfo>(StringComparer.OrdinalIgnoreCase);
+        var processes = Process.GetProcesses();
+        try
+        {
+            foreach (var process in processes)
+            {
+                try
+                {
+                    if (process.Id == Environment.ProcessId || process.MainWindowHandle == IntPtr.Zero) continue;
+                    var executablePath = process.MainModule?.FileName;
+                    if (string.IsNullOrWhiteSpace(executablePath) || !File.Exists(executablePath)) continue;
+                    executablePath = Path.GetFullPath(executablePath);
+                    if (discovered.ContainsKey(executablePath)) continue;
+                    var processName = Path.GetFileName(executablePath);
+                    discovered[executablePath] = new RunningAppInfo(GetExecutableDisplayName(executablePath), processName, executablePath);
+                }
+                catch { }
+            }
+        }
+        finally
+        {
+            foreach (var process in processes) process.Dispose();
+        }
+
+        RunningApplications.Clear();
+        foreach (var application in discovered.Values.OrderBy(x => x.DisplayName, StringComparer.CurrentCultureIgnoreCase))
+            RunningApplications.Add(application);
+        OnPropertyChanged(nameof(RunningApplicationsStatusText));
+    }
+
+    private static string GetExecutableDisplayName(string executablePath)
+    {
+        string? displayName = null;
+        try { displayName = FileVersionInfo.GetVersionInfo(executablePath).FileDescription; }
+        catch { }
+        if (string.IsNullOrWhiteSpace(displayName)) displayName = Path.GetFileNameWithoutExtension(executablePath);
+        var normalized = displayName.Replace('\r', ' ').Replace('\n', ' ').Trim();
+        return normalized.Length <= 80 ? normalized : normalized[..77] + "…";
     }
 
     private async void RemoveProfile_Click(object sender, RoutedEventArgs e)

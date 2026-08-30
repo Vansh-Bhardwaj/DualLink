@@ -10,6 +10,8 @@ DualLink 3.0 focuses on making combined-routing behavior understandable and depe
 4. **Lower idle cost** — keep background polling, allocations, helper processes, and retained transfer state bounded while preserving automatic behavior.
 5. **Approachable controls** — keep primary actions understandable without exposing IP addresses or technical logs unless requested.
 
+The first development checkpoint established app-scoped route accounting. The next interaction work adds applications from a local, on-demand list of visible running apps while retaining explicit executable browsing.
+
 ## Intentional exclusions
 
 - No per-application routing-setting profiles. Applications remain simple selectable targets.
