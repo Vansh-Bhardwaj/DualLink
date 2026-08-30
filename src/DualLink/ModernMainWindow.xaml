@@ -101,7 +101,7 @@
             <Grid>
               <StackPanel>
                 <TextBlock Text="Connection mix" Style="{StaticResource SectionTitle}" />
-                <TextBlock Text="What both connections are using right now" Style="{StaticResource CaptionText}" Margin="0,4,0,0" />
+                <TextBlock Text="{Binding TrafficScopeText}" Style="{StaticResource CaptionText}" Margin="0,4,0,0" />
                 <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
                   <TextBlock Text="↓" Foreground="{StaticResource WifiBrush}" FontSize="17" Margin="0,6,7,0" />
                   <TextBlock Text="{Binding CombinedSpeedText}" FontSize="29" FontWeight="Medium" />
@@ -111,7 +111,7 @@
                   <TextBlock Text="{Binding CombinedUploadSpeedText}" Foreground="{StaticResource SecondaryBrush}" FontSize="10.5" FontWeight="Medium" Margin="6,0,0,0" />
                 </StackPanel>
                 <Grid Width="232" Height="32" Margin="0,9,0,0" HorizontalAlignment="Left" ClipToBounds="True"
-                      ToolTip="Last minute of total traffic · Ethernet and Wi-Fi">
+                      ToolTip="{Binding TrafficHistoryToolTip}">
                   <Line X1="0" Y1="30" X2="232" Y2="30" Stroke="{StaticResource DividerBrush}" StrokeThickness="1" />
                   <Polyline Points="{Binding EthernetGraphPoints}" Stroke="{StaticResource EthernetBrush}" StrokeThickness="1.5"
                             StrokeLineJoin="Round" SnapsToDevicePixels="True" />

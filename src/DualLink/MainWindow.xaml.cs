@@ -55,6 +55,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private string _updateStatusText = "Updates are checked only when you ask.";
     private string? _availableUpdateUrl;
     private readonly Queue<TrafficSample> _trafficHistory = new();
+    private readonly Dictionary<string, RouteTrafficBaseline> _routeTrafficBaselines = new(StringComparer.OrdinalIgnoreCase);
 
     public MainWindow(bool previewMode = false)
     {
@@ -218,6 +219,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public int ActiveConnections => _balancer.ActiveConnections;
     public string CombinedSpeedText => $"{(SelectedEthernet?.DownloadMbps ?? 0) + (SelectedWifi?.DownloadMbps ?? 0):0.0} Mbps";
     public string CombinedUploadSpeedText => $"{(SelectedEthernet?.UploadMbps ?? 0) + (SelectedWifi?.UploadMbps ?? 0):0.0} Mbps";
+    public string TrafficScopeText => _boosting ? "Selected application traffic" : "What both connections are using right now";
+    public string TrafficHistoryToolTip => _boosting
+        ? "Last minute of selected application traffic · Ethernet and Wi-Fi"
+        : "Last minute of total adapter traffic · Ethernet and Wi-Fi";
     public PointCollection EthernetGraphPoints => BuildTrafficPoints(x => x.EthernetMbps);
     public PointCollection WifiGraphPoints => BuildTrafficPoints(x => x.WifiMbps);
     public string DiagnosticsSummaryText
@@ -370,6 +375,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             var elapsedSeconds = Math.Max(0.2, (now - _lastRateUpdateUtc).TotalSeconds);
             _lastRateUpdateUtc = now;
             NetworkDiscovery.UpdateRates(EthernetLinks.Concat(WifiLinks), elapsedSeconds);
+            if (_boosting) UpdateBoostRates(elapsedSeconds);
             RecordTrafficSample();
             OnPropertyChanged(nameof(ActiveConnections));
             OnPropertyChanged(nameof(CombinedSpeedText));
@@ -508,6 +514,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
         StatusText = "Starting…";
         await _balancer.StartAsync(routes, SelectedRoutingModeOption?.Mode ?? RoutingMode.Smart);
+        ResetBoostRateBaselines();
         try
         {
             var processMatchers = selected.SelectMany(x => x.ProcessMatchers).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
@@ -515,6 +522,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             _boosting = true;
             _startFailureCount = 0;
             _nextStartAttemptUtc = DateTime.MinValue;
+            OnPropertyChanged(nameof(TrafficScopeText));
+            OnPropertyChanged(nameof(TrafficHistoryToolTip));
             UpdateActiveRouteStatus();
             UpdateTray();
             Log($"Boost active for {string.Join(", ", selected.Select(x => x.Name))}");
@@ -534,6 +543,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             await _proxiFyre.RestoreAsync();
             await _balancer.StopAsync();
             _boosting = false;
+            _routeTrafficBaselines.Clear();
+            OnPropertyChanged(nameof(TrafficScopeText));
+            OnPropertyChanged(nameof(TrafficHistoryToolTip));
             Log(reason);
         }
         StatusText = _armed ? "Waiting" : "Ready";
@@ -840,6 +852,39 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         UpdateTray();
     }
 
+    private void ResetBoostRateBaselines()
+    {
+        _routeTrafficBaselines.Clear();
+        foreach (var status in _balancer.RouteStatuses)
+            _routeTrafficBaselines[status.Address] = new RouteTrafficBaseline(status.DownloadedBytes, status.UploadedBytes);
+    }
+
+    private void UpdateBoostRates(double elapsedSeconds)
+    {
+        var statuses = _balancer.RouteStatuses.ToDictionary(x => x.Address, StringComparer.OrdinalIgnoreCase);
+        foreach (var link in new[] { SelectedEthernet, SelectedWifi }.OfType<LinkInfo>())
+        {
+            if (!statuses.TryGetValue(link.Address, out var status))
+            {
+                link.DownloadMbps = 0;
+                link.UploadMbps = 0;
+                continue;
+            }
+
+            if (_routeTrafficBaselines.TryGetValue(link.Address, out var previous))
+            {
+                link.DownloadMbps = Math.Max(0, status.DownloadedBytes - previous.DownloadedBytes) * 8d / elapsedSeconds / 1_000_000d;
+                link.UploadMbps = Math.Max(0, status.UploadedBytes - previous.UploadedBytes) * 8d / elapsedSeconds / 1_000_000d;
+            }
+            else
+            {
+                link.DownloadMbps = 0;
+                link.UploadMbps = 0;
+            }
+            _routeTrafficBaselines[link.Address] = new RouteTrafficBaseline(status.DownloadedBytes, status.UploadedBytes);
+        }
+    }
+
     private void Details_Click(object sender, RoutedEventArgs e)
     {
         SettingsDrawer.Visibility = Visibility.Collapsed;
@@ -1090,4 +1135,5 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 
     private readonly record struct TrafficSample(DateTime TimestampUtc, double EthernetMbps, double WifiMbps);
+    private readonly record struct RouteTrafficBaseline(long DownloadedBytes, long UploadedBytes);
 }

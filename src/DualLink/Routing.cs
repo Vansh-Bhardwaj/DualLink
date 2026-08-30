@@ -29,7 +29,9 @@ public readonly record struct RouteStatus(
     DateTime UnhealthyUntilUtc,
     double? ConnectLatencyMs,
     DateTime? LastSuccessUtc,
-    double Reliability)
+    double Reliability,
+    long DownloadedBytes,
+    long UploadedBytes)
 {
     public bool IsHealthy => DateTime.UtcNow >= UnhealthyUntilUtc;
     public int ReliabilityPercent => (int)Math.Round(Math.Clamp(Reliability, 0d, 1d) * 100d);

@@ -33,7 +33,8 @@ if (!sources.Contains("127.0.0.1") || !sources.Contains("127.0.0.2"))
     throw new Exception("Weighted source rotation did not use both links: " + string.Join(", ", sources));
 
 var measuredRoutes = proxy.RouteStatuses;
-if (measuredRoutes.Any(x => x.ConnectLatencyMs is null or <= 0 || x.LastSuccessUtc is null || x.ReliabilityPercent is < 1 or > 100))
+if (measuredRoutes.Any(x => x.ConnectLatencyMs is null or <= 0 || x.LastSuccessUtc is null || x.ReliabilityPercent is < 1 or > 100) ||
+    measuredRoutes.Sum(x => x.DownloadedBytes) <= 0 || measuredRoutes.Sum(x => x.UploadedBytes) <= 0)
     throw new Exception("Successful routes did not retain connection-quality measurements.");
 proxy.SetBandwidthLimit(75);
 if (proxy.BandwidthLimitMbps != 75)
@@ -51,7 +52,7 @@ if (sources.TakeLast(2).Any(x => x != "127.0.0.2"))
     throw new Exception("Zero-weight route still received new connections: " + string.Join(", ", sources));
 
 Console.WriteLine("PASS: dual-link rotation and live zero-weight switching: " + string.Join(", ", sources));
-Console.WriteLine("PASS: successful routes expose latency quality and live combined bandwidth state");
+Console.WriteLine("PASS: successful routes expose latency, app traffic, and live combined bandwidth state");
 
 var authServer = new TcpListener(IPAddress.Loopback, 0);
 authServer.Start();

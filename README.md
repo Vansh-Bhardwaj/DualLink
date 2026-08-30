@@ -30,7 +30,7 @@ DualLink leaves normal Windows routing alone for every application you have not 
 
 The Details drawer explains filter readiness, route quality, and whether active sessions can use both connections. **Check connections** verifies each selected route, DNS, route independence, and application filtering in plain language. Technical activity remains hidden until requested. The default browser is detected from Windows settings and added automatically. Custom applications are matched by their full executable path so another program with the same filename is not selected accidentally.
 
-The one-minute sparkline shows the Ethernet and Wi-Fi contribution using traffic counters DualLink already collects. Settings can check either substantial Stable releases or development Preview tags, but DualLink never downloads or installs an update silently.
+While boosting, route speeds, the one-minute sparkline, and tray speed use byte counters from DualLink's own proxy, so they represent selected-application traffic rather than unrelated Windows activity. While idle, they show ordinary adapter activity. Settings can check either substantial Stable releases or development Preview tags, but DualLink never downloads or installs an update silently.
 
 <details>
 <summary>Settings and diagnostics stay out of the way until requested</summary>

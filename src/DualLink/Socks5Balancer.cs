@@ -62,6 +62,10 @@ public sealed class Socks5Balancer : IAsyncDisposable
     {
         if (IsRunning) return Task.CompletedTask;
         UpdateSources(sources, mode);
+        lock (_sourceLock)
+        {
+            foreach (var route in _routes) route.ResetSessionTraffic();
+        }
 
         _cts = new CancellationTokenSource();
         _listener = new TcpListener(IPAddress.Loopback, _configuredPort);
@@ -199,7 +203,7 @@ public sealed class Socks5Balancer : IAsyncDisposable
                 _log($"{source} → {host}:{port}");
 
                 using var outboundStream = new NetworkStream(outbound, ownsSocket: false);
-                await RelayBidirectionallyAsync(inbound, outboundStream, token);
+                await RelayBidirectionallyAsync(inbound, outboundStream, routeLease, token);
             }
             catch (OperationCanceledException) { }
             catch (Exception ex)
@@ -217,7 +221,7 @@ public sealed class Socks5Balancer : IAsyncDisposable
         }
     }
 
-    private async Task CopyThrottledAsync(Stream source, Stream destination, CancellationToken token)
+    private async Task CopyThrottledAsync(Stream source, Stream destination, Action<int> recordTransfer, CancellationToken token)
     {
         var buffer = ArrayPool<byte>.Shared.Rent(64 * 1024);
         try
@@ -228,16 +232,17 @@ public sealed class Socks5Balancer : IAsyncDisposable
                 if (count == 0) break;
                 await _bandwidthLimiter.ThrottleAsync(count, token);
                 await destination.WriteAsync(buffer.AsMemory(0, count), token);
+                recordTransfer(count);
             }
         }
         finally { ArrayPool<byte>.Shared.Return(buffer); }
     }
 
-    private async Task RelayBidirectionallyAsync(Stream inbound, Stream outbound, CancellationToken token)
+    private async Task RelayBidirectionallyAsync(Stream inbound, Stream outbound, RouteLease route, CancellationToken token)
     {
         using var relayCancellation = CancellationTokenSource.CreateLinkedTokenSource(token);
-        var upload = CopyThrottledAsync(inbound, outbound, relayCancellation.Token);
-        var download = CopyThrottledAsync(outbound, inbound, relayCancellation.Token);
+        var upload = CopyThrottledAsync(inbound, outbound, route.RecordUpload, relayCancellation.Token);
+        var download = CopyThrottledAsync(outbound, inbound, route.RecordDownload, relayCancellation.Token);
         var completed = await Task.WhenAny(upload, download);
 
         Exception? relayFailure = null;
@@ -422,6 +427,8 @@ public sealed class Socks5Balancer : IAsyncDisposable
         private double? _connectLatencyMs;
         private DateTime? _lastSuccessUtc;
         private double _reliability = 1d;
+        private long _downloadedBytes;
+        private long _uploadedBytes;
 
         public RouteState(RouteDefinition definition) => Update(definition);
         public string Address { get; private set; } = string.Empty;
@@ -456,6 +463,13 @@ public sealed class Socks5Balancer : IAsyncDisposable
 
         public void Reserve() => Interlocked.Increment(ref _activeConnections);
         public void Release() => Interlocked.Decrement(ref _activeConnections);
+        public void RecordDownload(int bytes) => Interlocked.Add(ref _downloadedBytes, bytes);
+        public void RecordUpload(int bytes) => Interlocked.Add(ref _uploadedBytes, bytes);
+        public void ResetSessionTraffic()
+        {
+            Interlocked.Exchange(ref _downloadedBytes, 0);
+            Interlocked.Exchange(ref _uploadedBytes, 0);
+        }
         public void MarkSuccess(double connectLatencyMs)
         {
             Interlocked.Exchange(ref _failures, 0);
@@ -482,13 +496,18 @@ public sealed class Socks5Balancer : IAsyncDisposable
         public RouteStatus Snapshot()
         {
             lock (_qualityGate)
-                return new RouteStatus(Address, Name, Weight, ActiveConnections, Failures, UnhealthyUntilUtc, _connectLatencyMs, _lastSuccessUtc, _reliability);
+                return new RouteStatus(
+                    Address, Name, Weight, ActiveConnections, Failures, UnhealthyUntilUtc,
+                    _connectLatencyMs, _lastSuccessUtc, _reliability,
+                    Interlocked.Read(ref _downloadedBytes), Interlocked.Read(ref _uploadedBytes));
         }
     }
 
     private sealed class RouteLease(RouteState route) : IDisposable
     {
         private RouteState? _route = route;
+        public void RecordDownload(int bytes) => _route?.RecordDownload(bytes);
+        public void RecordUpload(int bytes) => _route?.RecordUpload(bytes);
         public void Dispose() => Interlocked.Exchange(ref _route, null)?.Release();
     }
 }
