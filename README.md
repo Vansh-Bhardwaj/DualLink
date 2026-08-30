@@ -62,7 +62,7 @@ Upload results may combine less visibly than downloads. Speed tests often reuse 
 
 ## Build from source
 
-Developers need Windows 10/11 x64, the .NET 10 SDK, and Inno Setup 6. Run `build.ps1` to restore, test, publish, generate the SBOM and checksums, and create the offline installer in `dist`. See the [release policy](docs/RELEASE-POLICY.md) and [compliance review](docs/LEGAL-REVIEW.md) before distributing a build.
+Developers need Windows 10/11 x64, the .NET 10 SDK, and Inno Setup 6. Run `build.ps1` to restore, test, publish, generate the SBOM and checksums, and create the offline installer. The exact three public assets are placed in `dist\release`; other files under `dist` are internal build outputs. See the [release policy](docs/RELEASE-POLICY.md) and [compliance review](docs/LEGAL-REVIEW.md) before distributing a build.
 
 ## Requirements
 

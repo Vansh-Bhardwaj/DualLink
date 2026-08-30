@@ -30,6 +30,16 @@ A stable tag uses `vMAJOR.MINOR.PATCH`. Create a GitHub Release only for a subst
 8. GitHub Windows CI and CodeQL pass, with no unresolved security alert accepted silently.
 9. The installed executable matches the tagged build by hash and embedded informational version.
 
+### Public assets
+
+Each GitHub Release uploads exactly three project-owned assets from `dist\release`:
+
+1. `DualLink-VERSION-Setup-x64.exe` — the complete offline installer and the only download intended for normal users.
+2. `SHA256SUMS.txt` — SHA-256 entries for the installer and SBOM.
+3. `DualLink.spdx.json` — the software bill of materials for security and compliance review.
+
+Do not upload the standalone application or watchdog executables. They are internal installer components and presenting them separately is confusing. GitHub additionally generates its own source-code `.zip` and `.tar.gz` links; those are not project-uploaded assets.
+
 If any gate is incomplete, use another commit and development tag. Do not create a small GitHub Release as a workaround.
 
 ## Version files

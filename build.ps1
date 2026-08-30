@@ -13,6 +13,7 @@ if ([string]::IsNullOrWhiteSpace($displayVersion)) { $displayVersion = $version 
 $appProject = Join-Path $repoRoot 'src\DualLink\DualLink.csproj'
 $testProject = Join-Path $repoRoot 'tests\DualLink.Tests\DualLink.Tests.csproj'
 $publishDirectory = Join-Path $repoRoot 'dist\publish'
+$releaseDirectory = Join-Path $repoRoot 'dist\release'
 $watchdogProject = Join-Path $repoRoot 'src\DualLink.Watchdog\DualLink.Watchdog.csproj'
 $watchdogPublishDirectory = Join-Path $repoRoot 'dist\watchdog'
 $iconPath = Join-Path $repoRoot 'assets\DualLink.ico'
@@ -47,17 +48,23 @@ if (-not $SkipInstaller) {
     & $compiler "/DAppVersion=$displayVersion" "/DNumericVersion=$version" (Join-Path $repoRoot 'installer\DualLink.iss')
     if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed.' }
 
-    $releaseFiles = @(
+    $checksumFiles = @(
         (Join-Path $repoRoot "dist\DualLink-$displayVersion-Setup-x64.exe"),
-        (Join-Path $publishDirectory 'DualLink.exe'),
-        (Join-Path $publishDirectory 'DualLink.Watchdog.exe'),
         $sbomPath
     )
-    $checksumLines = foreach ($file in $releaseFiles) {
+    $checksumLines = foreach ($file in $checksumFiles) {
         $hash = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
         "$hash  $(Split-Path -Leaf $file)"
     }
-    $checksumLines | Set-Content -LiteralPath (Join-Path $repoRoot 'dist\SHA256SUMS.txt') -Encoding ascii
+    $checksumsPath = Join-Path $repoRoot 'dist\SHA256SUMS.txt'
+    $checksumLines | Set-Content -LiteralPath $checksumsPath -Encoding ascii
+
+    New-Item -ItemType Directory -Path $releaseDirectory -Force | Out-Null
+    Get-ChildItem -LiteralPath $releaseDirectory -File | Remove-Item -Force
+    Copy-Item -LiteralPath $checksumFiles[0] -Destination $releaseDirectory -Force
+    Copy-Item -LiteralPath $sbomPath -Destination $releaseDirectory -Force
+    Copy-Item -LiteralPath $checksumsPath -Destination $releaseDirectory -Force
 }
 
 Write-Host "DualLink $displayVersion build complete: $repoRoot\dist"
+if (-not $SkipInstaller) { Write-Host "Public release files (exactly 3): $releaseDirectory" }
