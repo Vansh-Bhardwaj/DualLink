@@ -163,8 +163,13 @@
                 </StackPanel>
                 <TextBlock Text="{Binding SelectedWifi.SpeedText}" HorizontalAlignment="Right" Foreground="{StaticResource SecondaryBrush}" FontSize="10.5" />
               </Grid>
-              <ComboBox x:Name="WifiAdapterPicker" Grid.Row="1" ItemsSource="{Binding WifiLinks}" SelectedItem="{Binding SelectedWifi}"
-                        ItemTemplate="{StaticResource LinkOptionTemplate}" Margin="15,8,0,0" Height="32" />
+              <Grid Grid.Row="1" Margin="15,8,0,0">
+                <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <ComboBox x:Name="WifiAdapterPicker" ItemsSource="{Binding WifiLinks}" SelectedItem="{Binding SelectedWifi}"
+                          ItemTemplate="{StaticResource LinkOptionTemplate}" Height="32" />
+                <Button Grid.Column="1" Content="Networks" Style="{StaticResource QuietButton}" Margin="9,0,0,0"
+                        Padding="0,4" ToolTip="See and change nearby Wi-Fi networks" Click="WifiNetworks_Click" />
+              </Grid>
               <Grid Grid.Row="2" Margin="15,9,0,0">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition /><ColumnDefinition Width="112" /></Grid.ColumnDefinitions>
                 <Button Content="Only" Style="{StaticResource QuietButton}" HorizontalAlignment="Left" Padding="0,4" Margin="0,0,9,0"
@@ -415,7 +420,7 @@
             <Border Grid.Row="6" BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Padding="0,16,0,0">
               <Grid><TextBlock Text="Build" Foreground="{StaticResource SecondaryBrush}" /><TextBlock Text="{Binding VersionText}" HorizontalAlignment="Right" /></Grid>
             </Border>
-            <TextBlock Grid.Row="8" Text="Updates never install silently. Exit from the tray menu to restore normal routing and stop DualLink."
+            <TextBlock Grid.Row="8" Text="Updates require confirmation and a matching published SHA-256 checksum."
                        Style="{StaticResource CaptionText}" TextWrapping="Wrap" />
           </Grid>
         </Border>
@@ -459,6 +464,55 @@
               <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
               <TextBlock Text="Not listed? Choose its executable file." Style="{StaticResource CaptionText}" VerticalAlignment="Center" />
               <Button Grid.Column="1" Content="Browse…" Margin="14,0,0,0" Click="BrowseExecutable_Click" />
+            </Grid>
+          </Grid>
+        </Border>
+
+        <Border x:Name="WifiNetworksDrawer" Grid.ColumnSpan="2" Width="390" HorizontalAlignment="Right"
+                Background="#292A30" BorderBrush="#50515B" BorderThickness="1,0,0,0"
+                Padding="23" Visibility="Collapsed" Panel.ZIndex="20">
+          <Grid>
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto" /><RowDefinition Height="20" /><RowDefinition Height="Auto" />
+              <RowDefinition Height="14" /><RowDefinition Height="*" /><RowDefinition Height="18" /><RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <Grid>
+              <StackPanel>
+                <TextBlock Text="Wi-Fi networks" Style="{StaticResource SectionTitle}" />
+                <TextBlock Text="Saved networks connect here" Style="{StaticResource CaptionText}" Margin="0,4,0,0" />
+              </StackPanel>
+              <Button Content="×" HorizontalAlignment="Right" VerticalAlignment="Top" Style="{StaticResource IconButton}" Click="CloseDrawer_Click" />
+            </Grid>
+            <Grid Grid.Row="2">
+              <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+              <TextBlock Text="{Binding WifiNetworksStatusText}" Foreground="{StaticResource SecondaryBrush}" VerticalAlignment="Center" />
+              <Button Grid.Column="1" Content="Refresh" Style="{StaticResource QuietButton}" Padding="0,4" Click="RefreshWifiNetworks_Click" />
+            </Grid>
+            <Border Grid.Row="4" Background="{StaticResource CanvasBrush}" BorderBrush="{StaticResource DividerBrush}"
+                    BorderThickness="1" CornerRadius="9" ClipToBounds="True">
+              <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <ItemsControl ItemsSource="{Binding WifiNetworks}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Grid Margin="15,12">
+                        <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <StackPanel>
+                          <TextBlock Text="{Binding Name}" FontWeight="Medium" TextTrimming="CharacterEllipsis" />
+                          <TextBlock Text="{Binding StatusText}" Style="{StaticResource CaptionText}" Margin="0,3,12,0" />
+                        </StackPanel>
+                        <Button Grid.Column="1" Content="{Binding ActionText}" VerticalAlignment="Center" Padding="12,6"
+                                IsEnabled="{Binding CanSelect}"
+                                Click="ConnectWifi_Click" />
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </ScrollViewer>
+            </Border>
+            <Grid Grid.Row="6">
+              <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+              <TextBlock Text="New passwords stay with Windows." Style="{StaticResource CaptionText}" VerticalAlignment="Center" />
+              <Button Grid.Column="1" Content="Windows picker…" Margin="14,0,0,0" Click="OpenWindowsWifi_Click" />
             </Grid>
           </Grid>
         </Border>

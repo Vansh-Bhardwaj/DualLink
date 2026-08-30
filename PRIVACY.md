@@ -17,13 +17,15 @@ Activity messages are kept in memory for the current session. ProxiFyre may writ
 
 When the user opens **Add application**, DualLink locally enumerates visible running applications so they can be selected without locating an executable manually. The temporary list contains display names, process filenames, and executable paths, remains in memory, and is not transmitted. Only an application the user adds is stored in settings.
 
+When the user opens **Wi-Fi networks**, DualLink asks Windows for nearby network names, signal strength, and saved-profile status. This information stays on the device. DualLink never reads or stores Wi-Fi passwords; Windows handles credentials for new networks.
+
 ## Network behavior
 
 When armed, DualLink redirects TCP connections created by applications the user explicitly selects to a SOCKS5 balancer running only on `127.0.0.1`. The balancer then creates outbound connections through the selected local adapters to the destination requested by that application. DualLink does not decrypt, inspect, retain, or upload application payloads.
 
 Normal destination services, launchers, browsers, internet providers, hotspot providers, and operating-system components may process network data under their own policies. DualLink does not change those third-party practices.
 
-DualLink makes no background analytics or update requests. When the user explicitly selects **Check now**, it sends a standard HTTPS request to GitHub's public API containing the normal network metadata of a web request and the installed DualLink version as its user agent. When the user explicitly selects **Check connections**, DualLink attempts a short TCP connection from each selected adapter to `1.1.1.1:443` and resolves `example.com` to verify basic internet and DNS reachability. No application payload, settings, activity history, or credentials are included.
+DualLink makes no background analytics or update requests. When the user explicitly selects **Check now**, it sends a standard HTTPS request to GitHub's public API containing the normal network metadata of a web request and the installed DualLink version as its user agent. If the user confirms an update, the installer and checksum manifest are downloaded from the GitHub release to `%LOCALAPPDATA%\DualLink\Updates`. When the user explicitly selects **Check connections**, DualLink attempts a short TCP connection from each selected adapter to `1.1.1.1:443` and resolves `example.com` to verify basic internet and DNS reachability. No application payload, settings, activity history, or credentials are included.
 
 ## Administrative access
 

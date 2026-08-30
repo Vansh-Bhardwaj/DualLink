@@ -5,7 +5,7 @@
 
 DualLink applies two independent internet links to new TCP connections made by selected Windows applications. It is designed for launchers and browsers that open several parallel download connections.
 
-![DualLink 3.0 application overview](docs/screenshots/duallink-3.0.png)
+![DualLink 3.1 with per-route speed controls, application detection, and the Wi-Fi network picker](docs/screenshots/duallink-3.1-wifi.png)
 
 <p align="center">
   <img src="docs/images/icon-preview.png" width="128" alt="DualLink confluence app icon: two network paths merging into one" />
@@ -22,14 +22,16 @@ DualLink leaves normal Windows routing alone for every application you have not 
 ## Everyday use
 
 1. Connect Ethernet and Wi-Fi/hotspot.
-2. Pick each connection. Wi-Fi choices show the connected network or hotspot name.
+2. Pick each connection. Wi-Fi choices show the connected network or hotspot name; **Networks** lists nearby SSIDs and connects saved Windows profiles directly.
 3. Choose the applications and select **Enable boost**.
 4. Choose an independent Mbps limit for each route, or select **Full speed**. A manual choice switches the mode to **Balanced** so the selected capacities guide new connections. Changes throttle that route's existing download and upload traffic immediately; Off leaves its current connections draining but sends no new ones there. Select **Only** to move all new connections to that route.
 5. Close the window to keep DualLink in the notification area. Hover for live combined speed, connection quality, and session context, or right-click for the compact DualLink status menu. Use **Exit and restore** to return the filter to its previous configuration.
 
+JDownloader 2 is detected together with its bundled Java download engine. For one large file, use multiple chunks when the host supports them so separate connections can use both routes; a single ordinary TCP connection cannot be split across two internet links without a remote bonding endpoint.
+
 The Details drawer explains filter readiness, route quality, and whether active sessions have actually used both connections. **This boost** shows the real download, upload, and successful-connection contribution from Ethernet and Wi-Fi; these local counters reset whenever a new boost begins. **Check connections** verifies each selected route, DNS, route independence, and application filtering in plain language. Technical activity remains hidden until requested. The default browser is detected from Windows settings and added automatically. **Add application** offers visible running apps first, with executable browsing as a fallback. Custom applications are matched by their full executable path so another program with the same filename is not selected accidentally; adding the same executable again selects its existing row, and custom rows can be removed directly. Changing the chosen applications during a boost reloads only the local filter, so established proxied downloads are not closed.
 
-While boosting, route speeds, the one-minute sparkline, and tray speed use byte counters from DualLink's own proxy, so they represent selected-application traffic rather than unrelated Windows activity. While idle, they show ordinary adapter activity. Route speed choices act on active proxy traffic without restarting the filter, proxy, or application. Settings can check either substantial Stable releases or development Preview tags, but DualLink never downloads or installs an update silently.
+While boosting, route speeds, the one-minute sparkline, and tray speed use byte counters from DualLink's own proxy, so they represent selected-application traffic rather than unrelated Windows activity. While idle, they show ordinary adapter activity. Route speed choices act on active proxy traffic without restarting the filter, proxy, or application. Settings can inspect development Preview tags or check substantial Stable releases. A Stable update downloads only after confirmation, verifies the release checksum, restores routing, and then opens the installer; nothing installs silently.
 
 <details>
 <summary>Settings and diagnostics stay out of the way until requested</summary>
@@ -52,7 +54,7 @@ Requirements for developers only:
 
 The checked-in installer configuration is intended for a free, noncommercial release. Commercial builders must obtain the licenses identified in [the compliance review](docs/LEGAL-REVIEW.md).
 
-Run `build.ps1`. The script restores from NuGet.org, runs the integration test, publishes a self-contained single executable, and compiles the offline installer into `dist`.
+Run `build.ps1`. The script restores from NuGet.org, runs the integration test, publishes a self-contained single executable, and compiles the offline installer into `dist`. Rerunning setup over an existing AppId offers Update/reinstall, Repair, and Uninstall instead of creating a second installation.
 
 Development checkpoints use annotated `-dev.N` tags without GitHub Releases. Public Releases are reserved for substantial stable milestones that pass the complete [version and release policy](docs/RELEASE-POLICY.md).
 

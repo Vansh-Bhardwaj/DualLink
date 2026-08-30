@@ -50,9 +50,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private DateTime _lastRateUpdateUtc = DateTime.UtcNow;
     private DateTime _nextProcessScanUtc = DateTime.MinValue;
     private CancellationTokenSource? _diagnosticsCts;
+    private CancellationTokenSource? _wifiConnectCts;
+    private CancellationTokenSource? _updateCts;
     private string _diagnosticsSummaryText = "Run a check when something feels wrong.";
     private string _updateStatusText = "Updates are checked only when you ask.";
-    private string? _availableUpdateUrl;
+    private string _wifiNetworksStatusText = "Open to scan nearby networks.";
+    private UpdateCheckResult? _availableUpdate;
     private readonly Queue<TrafficSample> _trafficHistory = new();
     private readonly Dictionary<string, RouteTrafficBaseline> _routeTrafficBaselines = new(StringComparer.OrdinalIgnoreCase);
 
@@ -118,6 +121,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public ObservableCollection<string> Activity { get; } = new();
     public ObservableCollection<ConnectionCheckResult> Diagnostics { get; } = new();
     public ObservableCollection<RunningAppInfo> RunningApplications { get; } = new();
+    public ObservableCollection<WifiNetworkInfo> WifiNetworks { get; } = new();
     public ObservableCollection<RouteSpeedOption> RouteSpeedOptions { get; } = new()
     {
         new() { Mbps = 0, DisplayName = "Off" },
@@ -202,7 +206,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             if (_selectedUpdateChannelOption == value) return;
             _selectedUpdateChannelOption = value;
-            _availableUpdateUrl = null;
+            _availableUpdate = null;
             UpdateStatusText = value?.Description ?? string.Empty;
             OnPropertyChanged();
             OnPropertyChanged(nameof(UpdateActionText));
@@ -215,7 +219,15 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         get => _updateStatusText;
         private set { if (_updateStatusText != value) { _updateStatusText = value; OnPropertyChanged(); } }
     }
-    public string UpdateActionText => _availableUpdateUrl is null ? "Check now" : "View version";
+    public string UpdateActionText => _availableUpdate is null
+        ? "Check now"
+        : _availableUpdate.CanInstall ? $"Update to {_availableUpdate.Version}" : "View version";
+
+    public string WifiNetworksStatusText
+    {
+        get => _wifiNetworksStatusText;
+        private set { if (_wifiNetworksStatusText != value) { _wifiNetworksStatusText = value; OnPropertyChanged(); } }
+    }
 
     public string StatusText { get => _statusText; private set { _statusText = value; OnPropertyChanged(); } }
     public Brush StatusColor { get => _statusColor; private set { _statusColor = value; OnPropertyChanged(); } }
@@ -321,6 +333,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             new AppProfile { Name="Battle.net", Subtitle="Blizzard downloads and Agent updates", Accent="#148EFF", Processes=new(){"Battle.net.exe","Agent.exe"} },
             new AppProfile { Name="EA app", Subtitle="EA downloads and background updater", Accent="#FF6A2A", Processes=new(){"EADesktop.exe","EABackgroundService.exe"} }
         };
+        var jDownloader = ApplicationProfileDiscovery.FindJDownloader();
+        if (jDownloader is not null) defaults.Add(jDownloader);
         var browser = BrowserDiscovery.FindDefaultBrowser();
         if (browser is not null)
         {
@@ -334,6 +348,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 IsSystemDetected = true
             });
         }
+        foreach (var customProfile in _settings.CustomProfiles ?? new List<AppProfile>())
+            ApplicationProfileDiscovery.EnrichKnownApplication(customProfile);
         foreach (var profile in defaults.Concat(_settings.CustomProfiles ?? new List<AppProfile>()))
         {
             profile.IsSelected = _previewMode
@@ -535,15 +551,29 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private void UpdateRunningProfiles()
     {
         HashSet<string> names;
+        HashSet<string> paths;
         try
         {
             var processes = Process.GetProcesses();
-            try { names = processes.Select(x => x.ProcessName + ".exe").ToHashSet(StringComparer.OrdinalIgnoreCase); }
+            try
+            {
+                names = processes.Select(x => x.ProcessName + ".exe").ToHashSet(StringComparer.OrdinalIgnoreCase);
+                paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var process in processes)
+                {
+                    try
+                    {
+                        var path = process.MainModule?.FileName;
+                        if (!string.IsNullOrWhiteSpace(path)) paths.Add(Path.GetFullPath(path));
+                    }
+                    catch { }
+                }
+            }
             finally { foreach (var process in processes) process.Dispose(); }
         }
         catch { return; }
         foreach (var profile in Profiles)
-            profile.IsRunning = profile.Processes.Any(names.Contains);
+            profile.IsRunning = profile.Processes.Any(names.Contains) || profile.ExecutablePaths.Any(paths.Contains);
     }
 
     private async Task StartBoostAsync(IReadOnlyCollection<AppProfile> selected)
@@ -1020,6 +1050,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         SettingsDrawer.Visibility = Visibility.Collapsed;
         AddAppDrawer.Visibility = Visibility.Collapsed;
+        WifiNetworksDrawer.Visibility = Visibility.Collapsed;
         DetailsDrawer.Visibility = DetailsDrawer.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
     }
 
@@ -1106,9 +1137,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private async void CheckUpdates_Click(object sender, RoutedEventArgs e)
     {
-        if (_availableUpdateUrl is not null)
+        if (_availableUpdate is not null)
         {
-            Process.Start(new ProcessStartInfo { FileName = _availableUpdateUrl, UseShellExecute = true });
+            if (_availableUpdate.CanInstall) await InstallAvailableUpdateAsync(_availableUpdate);
+            else Process.Start(new ProcessStartInfo { FileName = _availableUpdate.PageUrl, UseShellExecute = true });
             return;
         }
 
@@ -1116,11 +1148,14 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         UpdateStatusText = "Checking GitHub…";
         try
         {
+            _updateCts?.Cancel();
+            _updateCts?.Dispose();
+            _updateCts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             var result = await UpdateChecker.CheckAsync(
                 SelectedUpdateChannelOption?.Channel ?? UpdateChannel.Stable,
-                CancellationToken.None);
+                _updateCts.Token);
             UpdateStatusText = result.Message;
-            _availableUpdateUrl = result.IsAvailable ? result.PageUrl : null;
+            _availableUpdate = result.IsAvailable ? result : null;
             OnPropertyChanged(nameof(UpdateActionText));
         }
         catch
@@ -1130,16 +1165,84 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         finally { UpdateCheckButton.IsEnabled = true; }
     }
 
+    private async Task InstallAvailableUpdateAsync(UpdateCheckResult update)
+    {
+        var answer = MessageBox.Show(
+            $"Download and install DualLink {update.Version}?\n\nDualLink will verify the published SHA-256 checksum, restore normal routing, and close before setup continues.",
+            "Install DualLink update",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Information);
+        if (answer != MessageBoxResult.Yes) return;
+
+        UpdateCheckButton.IsEnabled = false;
+        _updateCts?.Cancel();
+        _updateCts?.Dispose();
+        _updateCts = new CancellationTokenSource(TimeSpan.FromMinutes(12));
+        try
+        {
+            var progress = new Progress<int>(percent => UpdateStatusText = $"Downloading {update.Version} · {percent}%");
+            var installer = await UpdateChecker.DownloadInstallerAsync(update, progress, _updateCts.Token);
+            UpdateStatusText = "Verified · preparing setup";
+
+            await _controllerGate.WaitAsync();
+            try
+            {
+                _armed = false;
+                UpdateButton();
+                SaveSettings();
+                await StopBoostAsync("Preparing verified update — normal routing restored");
+            }
+            finally { _controllerGate.Release(); }
+
+            var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = installer,
+                Arguments = "/UPDATE=1 /CLOSEAPPLICATIONS /NORESTART",
+                UseShellExecute = true
+            });
+            if (process is null) throw new InvalidOperationException("Windows could not start the verified installer.");
+            _exitRequested = true;
+            Close();
+        }
+        catch (OperationCanceledException)
+        {
+            UpdateStatusText = "Update cancelled";
+        }
+        catch (Exception ex)
+        {
+            UpdateStatusText = "Update could not be installed";
+            Log($"Update failed: {ex.Message}");
+            MessageBox.Show(
+                "DualLink couldn't download and verify the update. Check your internet connection, then try again. No changes were made.",
+                "Update not installed",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+        finally
+        {
+            if (!_exitRequested) UpdateCheckButton.IsEnabled = true;
+        }
+    }
+
     private void Settings_Click(object sender, RoutedEventArgs e)
     {
         DetailsDrawer.Visibility = Visibility.Collapsed;
         AddAppDrawer.Visibility = Visibility.Collapsed;
+        WifiNetworksDrawer.Visibility = Visibility.Collapsed;
         SettingsDrawer.Visibility = SettingsDrawer.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
     }
 
     public void ShowSettingsPreview() => SettingsDrawer.Visibility = Visibility.Visible;
     public void ShowDetailsPreview() => DetailsDrawer.Visibility = Visibility.Visible;
-    public void ShowNetworkPickerPreview() => WifiAdapterPicker.IsDropDownOpen = true;
+    public void ShowNetworkPickerPreview()
+    {
+        WifiNetworks.Clear();
+        WifiNetworks.Add(new WifiNetworkInfo("Mobile hotspot", "Mobile hotspot", Guid.Empty, "Wi-Fi", 91, true, true));
+        WifiNetworks.Add(new WifiNetworkInfo("Home 5 GHz", "Home 5 GHz", Guid.Empty, "Wi-Fi", 76, false, true));
+        WifiNetworks.Add(new WifiNetworkInfo("Guest network", string.Empty, Guid.Empty, "Wi-Fi", 58, false, true));
+        WifiNetworksStatusText = "3 nearby networks";
+        WifiNetworksDrawer.Visibility = Visibility.Visible;
+    }
     public void ShowAddApplicationPreview()
     {
         RunningApplications.Clear();
@@ -1161,6 +1264,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         DetailsDrawer.Visibility = Visibility.Collapsed;
         SettingsDrawer.Visibility = Visibility.Collapsed;
         AddAppDrawer.Visibility = Visibility.Collapsed;
+        WifiNetworksDrawer.Visibility = Visibility.Collapsed;
     }
 
     private void ShowFromTray()
@@ -1183,9 +1287,84 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         DetailsDrawer.Visibility = Visibility.Collapsed;
         SettingsDrawer.Visibility = Visibility.Collapsed;
+        WifiNetworksDrawer.Visibility = Visibility.Collapsed;
         RefreshRunningApplications();
         AddAppDrawer.Visibility = Visibility.Visible;
     }
+
+    private async void WifiNetworks_Click(object sender, RoutedEventArgs e)
+    {
+        DetailsDrawer.Visibility = Visibility.Collapsed;
+        SettingsDrawer.Visibility = Visibility.Collapsed;
+        AddAppDrawer.Visibility = Visibility.Collapsed;
+        WifiNetworksDrawer.Visibility = Visibility.Visible;
+        await RefreshWifiNetworksAsync();
+    }
+
+    private async void RefreshWifiNetworks_Click(object sender, RoutedEventArgs e) => await RefreshWifiNetworksAsync();
+
+    private async Task RefreshWifiNetworksAsync()
+    {
+        if (_previewMode) return;
+        WifiNetworksStatusText = "Scanning…";
+        try
+        {
+            var networks = await Task.Run(WifiManager.GetAvailableNetworks);
+            WifiNetworks.Clear();
+            foreach (var network in networks) WifiNetworks.Add(network);
+            WifiNetworksStatusText = networks.Count == 0
+                ? "No nearby networks found"
+                : networks.Count == 1 ? "1 nearby network" : $"{networks.Count} nearby networks";
+        }
+        catch
+        {
+            WifiNetworksStatusText = "Wi-Fi scan was unavailable";
+        }
+    }
+
+    private async void ConnectWifi_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { DataContext: WifiNetworkInfo network }) return;
+        if (!network.IsSaved)
+        {
+            OpenWindowsWifiPicker();
+            WifiNetworksStatusText = $"Choose {network.Name} in Windows to enter its password";
+            return;
+        }
+
+        _wifiConnectCts?.Cancel();
+        _wifiConnectCts?.Dispose();
+        _updateCts?.Cancel();
+        _updateCts?.Dispose();
+        _wifiConnectCts = new CancellationTokenSource(TimeSpan.FromSeconds(16));
+        WifiNetworksStatusText = $"Connecting to {network.Name}…";
+        try
+        {
+            var connected = await WifiManager.ConnectAsync(network, _wifiConnectCts.Token);
+            if (!connected)
+            {
+                WifiNetworksStatusText = $"Could not connect to {network.Name}";
+                return;
+            }
+            await Task.Delay(900);
+            RefreshAdapters(logDiscovery: false);
+            if (_balancer.IsRunning) ApplyRouteMix();
+            await RefreshWifiNetworksAsync();
+            Log($"Wi-Fi changed to {network.Name}");
+        }
+        catch (OperationCanceledException)
+        {
+            WifiNetworksStatusText = "Wi-Fi connection timed out";
+        }
+    }
+
+    private void OpenWindowsWifi_Click(object sender, RoutedEventArgs e) => OpenWindowsWifiPicker();
+
+    private static void OpenWindowsWifiPicker() => Process.Start(new ProcessStartInfo
+    {
+        FileName = "ms-availablenetworks:",
+        UseShellExecute = true
+    });
 
     private async void BrowseExecutable_Click(object sender, RoutedEventArgs e)
     {
@@ -1218,13 +1397,14 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             return;
         }
 
+        var executablePaths = ApplicationProfileDiscovery.ExpandExecutablePaths(executablePath);
         var profile = new AppProfile
         {
             Name = GetExecutableDisplayName(executablePath),
-            Subtitle = "Custom application",
+            Subtitle = executablePaths.Count > 1 ? "Application and its download engine" : "Custom application",
             Accent = "#B6C2D1",
             Processes = new List<string> { processName },
-            ExecutablePaths = new List<string> { executablePath },
+            ExecutablePaths = executablePaths,
             IsCustom = true,
             IsSelected = true
         };
@@ -1348,6 +1528,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         SystemEvents.PowerModeChanged -= PowerModeChanged;
         _diagnosticsCts?.Cancel();
         _diagnosticsCts?.Dispose();
+        _wifiConnectCts?.Cancel();
+        _wifiConnectCts?.Dispose();
         await _controllerGate.WaitAsync();
         try
         {

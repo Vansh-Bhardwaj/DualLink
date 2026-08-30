@@ -214,6 +214,74 @@ if (friendlyLink.SpeedLimitMbps != 0 || friendlyLink.RouteControlText != "Full")
 
 Console.WriteLine("PASS: adapter dropdown uses friendly network labels");
 
+var savedWifi = new WifiNetworkInfo("Phone hotspot", "Phone hotspot", Guid.NewGuid(), "Wi-Fi", 88, false, true);
+var newWifi = new WifiNetworkInfo("New network", string.Empty, Guid.NewGuid(), "Wi-Fi", 54, false, true);
+if (!savedWifi.IsSaved || savedWifi.ActionText != "Connect" || newWifi.IsSaved || newWifi.ActionText != "Windows…" ||
+    !newWifi.StatusText.Contains("Password required", StringComparison.Ordinal))
+    throw new Exception("Wi-Fi network choices did not distinguish saved and password-required networks.");
+Console.WriteLine("PASS: Wi-Fi picker keeps saved-profile switching separate from Windows password entry");
+var visibleWifiNetworks = WifiManager.GetAvailableNetworks();
+if (visibleWifiNetworks.Any(x => string.IsNullOrWhiteSpace(x.Name) || x.SignalQuality > 100))
+    throw new Exception("Native Wi-Fi discovery returned an invalid network entry.");
+Console.WriteLine($"PASS: native Windows Wi-Fi discovery completed with {visibleWifiNetworks.Count} visible network(s)");
+
+var detectedJDownloader = ApplicationProfileDiscovery.FindJDownloader();
+if (detectedJDownloader is not null &&
+    (!detectedJDownloader.ExecutablePaths.Any(path => Path.GetFileName(path).Equals("javaw.exe", StringComparison.OrdinalIgnoreCase)) ||
+     !detectedJDownloader.ExecutablePaths.Any(path => Path.GetFileName(path).Equals("JDownloader2.exe", StringComparison.OrdinalIgnoreCase))))
+    throw new Exception("JDownloader discovery did not include its Java download engine.");
+Console.WriteLine(detectedJDownloader is null
+    ? "PASS: JDownloader discovery safely handles an absent installation"
+    : "PASS: JDownloader discovery includes its Java download engine");
+
+const string releaseJson = """
+{
+  "tag_name": "v3.1.0",
+  "html_url": "https://github.com/Vansh-Bhardwaj/DualLink/releases/tag/v3.1.0",
+  "assets": [
+    { "name": "DualLink-3.1.0-Setup-x64.exe", "browser_download_url": "https://github.com/Vansh-Bhardwaj/DualLink/releases/download/v3.1.0/DualLink-3.1.0-Setup-x64.exe" },
+    { "name": "SHA256SUMS.txt", "browser_download_url": "https://github.com/Vansh-Bhardwaj/DualLink/releases/download/v3.1.0/SHA256SUMS.txt" }
+  ]
+}
+""";
+var update = UpdateChecker.EvaluateStableReleaseJson(releaseJson, "3.0.0");
+var currentUpdate = UpdateChecker.EvaluateStableReleaseJson(releaseJson, "3.1.0");
+var manifestHash = new string('a', 64);
+if (!update.IsAvailable || !update.CanInstall || update.Version != "3.1.0" || currentUpdate.IsAvailable ||
+    UpdateChecker.FindChecksum($"{manifestHash}  DualLink-3.1.0-Setup-x64.exe", "DualLink-3.1.0-Setup-x64.exe") != manifestHash ||
+    UpdateChecker.FindChecksum($"{manifestHash}  another.exe", "DualLink-3.1.0-Setup-x64.exe") is not null)
+    throw new Exception("Stable update asset or checksum selection regressed.");
+Console.WriteLine("PASS: stable updater selects the exact installer and matching checksum asset");
+
+var installerBytes = Encoding.UTF8.GetBytes("verified installer test payload");
+var installerHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(installerBytes)).ToLowerInvariant();
+var updateTestRoot = Path.Combine(Path.GetTempPath(), "DualLinkUpdateTest-" + Guid.NewGuid().ToString("N"));
+try
+{
+    using var updateClient = new HttpClient(new UpdateTestHandler(installerBytes, installerHash));
+    var downloadedInstaller = await UpdateChecker.DownloadInstallerAsync(update, null, updateClient, updateTestRoot, cts.Token);
+    if (!File.ReadAllBytes(downloadedInstaller).SequenceEqual(installerBytes))
+        throw new Exception("Verified updater did not preserve the installer bytes.");
+
+    using var badUpdateClient = new HttpClient(new UpdateTestHandler(installerBytes, new string('0', 64)));
+    try
+    {
+        await UpdateChecker.DownloadInstallerAsync(update, null, badUpdateClient, updateTestRoot, cts.Token);
+        throw new Exception("Updater accepted an installer with a mismatched checksum.");
+    }
+    catch (InvalidDataException)
+    {
+        // Expected: the untrusted download is rejected and its partial file is removed.
+    }
+    if (Directory.EnumerateFiles(updateTestRoot, "*.download", SearchOption.AllDirectories).Any())
+        throw new Exception("Updater retained an unverified partial download.");
+}
+finally
+{
+    if (Directory.Exists(updateTestRoot)) Directory.Delete(updateTestRoot, true);
+}
+Console.WriteLine("PASS: updater downloads verified bytes and rejects checksum mismatches");
+
 var matchers = new AppProfile
 {
     Name = "Test", Subtitle = "Test", Accent = "#ffffff", Processes = new() { "test.exe" },
@@ -516,4 +584,16 @@ async Task ExpectConnectionRejectedAsync(int proxyPort, int targetPort, Cancella
     var connectReply = new byte[10];
     await stream.ReadExactlyAsync(connectReply, token);
     if (connectReply[1] == 0) throw new Exception("Closed destination unexpectedly accepted a connection");
+}
+
+sealed class UpdateTestHandler(byte[] installer, string checksum) : HttpMessageHandler
+{
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        var isManifest = request.RequestUri?.AbsolutePath.EndsWith("SHA256SUMS.txt", StringComparison.OrdinalIgnoreCase) == true;
+        HttpContent content = isManifest
+            ? new StringContent($"{checksum}  DualLink-3.1.0-Setup-x64.exe")
+            : new ByteArrayContent(installer);
+        return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = content });
+    }
 }
