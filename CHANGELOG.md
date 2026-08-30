@@ -4,7 +4,7 @@ All notable DualLink changes are recorded here. Versions follow semantic version
 
 ## 3.0.0-dev.4 - 2026-08-30
 
-- Development checkpoint for interruption-free application target updates.
+- Application selections now update the filter in place while the local proxy and established downloads keep running; the original recovery state remains intact.
 
 ## 3.0.0-dev.3 - 2026-08-30
 

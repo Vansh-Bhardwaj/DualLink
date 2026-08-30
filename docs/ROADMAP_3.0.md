@@ -10,7 +10,7 @@ DualLink 3.0 focuses on making combined-routing behavior understandable and depe
 4. **Lower idle cost** — keep background polling, allocations, helper processes, and retained transfer state bounded while preserving automatic behavior.
 5. **Approachable controls** — keep primary actions understandable without exposing IP addresses or technical logs unless requested.
 
-The first development checkpoints established app-scoped route accounting, an on-demand running-application picker, and an understandable per-boost contribution summary. The next work concentrates on proving counter and recovery behavior across longer repeated sessions while continuing to lower background cost.
+The first development checkpoints established app-scoped route accounting, an on-demand running-application picker, an understandable per-boost contribution summary, and live application-target updates that preserve established proxy transfers. The next work concentrates on proving counter and recovery behavior across longer repeated sessions while continuing to lower background cost.
 
 ## Intentional exclusions
 
@@ -22,4 +22,4 @@ The first development checkpoints established app-scoped route accounting, an on
 
 ## Stable 3.0 gate
 
-The normal repository release policy remains authoritative. In addition, 3.0 must prove that app-scoped traffic accounting is correct across both routes, counters remain bounded across repeated sessions, displayed evidence matches actual proxy activity, and recovery does not misreport unrelated destination failures as link failures.
+The normal repository release policy remains authoritative. In addition, 3.0 must prove that app-scoped traffic accounting is correct across both routes, counters remain bounded across repeated sessions, displayed evidence matches actual proxy activity, live target changes preserve established transfers, and recovery does not misreport unrelated destination failures as link failures.

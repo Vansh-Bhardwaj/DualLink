@@ -698,20 +698,36 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private async void ProfileSelection_Click(object sender, RoutedEventArgs e)
     {
         SaveSettings();
-        if (_boosting) await RestartForSelectionChangeAsync();
+        if (_boosting) await ApplySelectionChangeAsync();
     }
     private void AutoBoost_Click(object sender, RoutedEventArgs e) => SaveSettings();
 
-    private async Task RestartForSelectionChangeAsync()
+    private async Task ApplySelectionChangeAsync()
     {
         await _controllerGate.WaitAsync();
         try
         {
-            await StopBoostAsync("Target selection changed");
             UpdateRunningProfiles();
             var selected = Profiles.Where(x => x.IsSelected).ToList();
             var shouldBoost = _armed && selected.Count > 0 && (!AutoBoost || selected.Any(x => x.IsRunning));
-            if (shouldBoost) await StartBoostAsync(selected);
+            if (_boosting && shouldBoost)
+            {
+                StatusText = "Updating apps…";
+                StatusColor = new SolidColorBrush(Color.FromRgb(255, 184, 77));
+                UpdateTray();
+                var processMatchers = selected.SelectMany(x => x.ProcessMatchers).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+                await _proxiFyre.UpdateTargetsAsync(processMatchers, _balancer.BoundPort, _proxyCredentials);
+                UpdateActiveRouteStatus();
+                UpdateTray();
+            }
+            else if (_boosting)
+            {
+                await StopBoostAsync("No selected target is running");
+            }
+            else if (shouldBoost)
+            {
+                await StartBoostAsync(selected);
+            }
         }
         catch (Exception ex)
         {
@@ -1159,7 +1175,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             var selectionChanged = !existing.IsSelected;
             existing.IsSelected = true;
             SaveSettings();
-            if (_boosting && selectionChanged) await RestartForSelectionChangeAsync();
+            if (_boosting && selectionChanged) await ApplySelectionChangeAsync();
             Log($"{existing.Name} is already in the application list");
             AddAppDrawer.Visibility = Visibility.Collapsed;
             return;
@@ -1179,7 +1195,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         SaveSettings();
         Log($"Added {processName}");
         AddAppDrawer.Visibility = Visibility.Collapsed;
-        if (_boosting) await RestartForSelectionChangeAsync();
+        if (_boosting) await ApplySelectionChangeAsync();
     }
 
     private void RefreshRunningApplications()
@@ -1231,7 +1247,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         Profiles.Remove(profile);
         SaveSettings();
         Log($"Removed {profile.Name}");
-        if (requiresRestart) await RestartForSelectionChangeAsync();
+        if (requiresRestart) await ApplySelectionChangeAsync();
     }
 
     private async void InstallFilter_Click(object sender, RoutedEventArgs e)

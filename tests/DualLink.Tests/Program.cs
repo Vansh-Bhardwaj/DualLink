@@ -2,6 +2,7 @@ using DualLink;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Text.Json;
 
 var sources = new List<string>();
 var credentials = new ProxyCredentials("duallink-test", "correct-horse-battery-staple");
@@ -213,6 +214,82 @@ var matchers = new AppProfile
 if (!matchers.Contains(@"C:\Apps\Test\test.exe") || !matchers.Contains("test.exe"))
     throw new Exception("Full executable path matching regressed.");
 Console.WriteLine("PASS: custom targets preserve full executable paths");
+
+var managerRoot = Path.Combine(Path.GetTempPath(), $"DualLink-manager-test-{Guid.NewGuid():N}");
+var managerState = Path.Combine(managerRoot, "state");
+var managerProgram = Path.Combine(managerRoot, "ProxiFyre");
+Directory.CreateDirectory(managerProgram);
+var managerConfig = Path.Combine(managerProgram, ProxiFyreManager.ConfigFileName);
+File.WriteAllText(Path.Combine(managerProgram, "ProxiFyre.exe"), string.Empty);
+File.WriteAllText(managerConfig, "original-config");
+var serviceRunning = true;
+var failNextServiceStart = false;
+var serviceCommands = new List<string>();
+Task<ProcessResult> FakeProcessRunner(string fileName, string arguments, bool _)
+{
+    serviceCommands.Add($"{fileName} {arguments}");
+    if (fileName.Equals("sc.exe", StringComparison.OrdinalIgnoreCase))
+    {
+        if (arguments.StartsWith("stop ", StringComparison.OrdinalIgnoreCase)) serviceRunning = false;
+        if (arguments.StartsWith("start ", StringComparison.OrdinalIgnoreCase))
+        {
+            if (failNextServiceStart)
+            {
+                failNextServiceStart = false;
+                return Task.FromResult(new ProcessResult(5, "simulated service start failure"));
+            }
+            serviceRunning = true;
+        }
+        if (arguments.StartsWith("query ", StringComparison.OrdinalIgnoreCase))
+            return Task.FromResult(new ProcessResult(0, serviceRunning ? "STATE: RUNNING" : "STATE: STOPPED"));
+    }
+    return Task.FromResult(new ProcessResult(0, string.Empty));
+}
+
+try
+{
+    var manager = new ProxiFyreManager(_ => { }, managerState, managerProgram, FakeProcessRunner);
+    await manager.StartAsync(new[] { "old.exe" }, 1080, credentials);
+    var backupPath = Path.Combine(managerState, "proxifyre-config.backup");
+    if (!File.Exists(manager.SessionPath) || File.ReadAllText(backupPath) != "original-config")
+        throw new Exception("Starting a filter session did not preserve its recovery state.");
+
+    var stopCountBeforeUpdate = serviceCommands.Count(x => x.Contains("sc.exe stop", StringComparison.OrdinalIgnoreCase));
+    await manager.UpdateTargetsAsync(new[] { "new.exe", "NEW.EXE", @"C:\Apps\Exact.exe" }, 1080, credentials);
+    var stopCountAfterUpdate = serviceCommands.Count(x => x.Contains("sc.exe stop", StringComparison.OrdinalIgnoreCase));
+    if (stopCountAfterUpdate != stopCountBeforeUpdate + 1 || !serviceRunning || !File.Exists(manager.SessionPath))
+        throw new Exception("Live target update did not restart only the filter while preserving the active session.");
+
+    using (var document = JsonDocument.Parse(File.ReadAllText(managerConfig)))
+    {
+        var appNames = document.RootElement.GetProperty("proxies")[0].GetProperty("appNames")
+            .EnumerateArray().Select(x => x.GetString()).ToArray();
+        if (appNames.Length != 2 || !appNames.Contains("new.exe", StringComparer.OrdinalIgnoreCase) ||
+            !appNames.Contains(@"C:\Apps\Exact.exe", StringComparer.OrdinalIgnoreCase))
+            throw new Exception("Live target configuration did not retain distinct name and full-path matchers.");
+    }
+
+    var workingTargetConfig = File.ReadAllText(managerConfig);
+    failNextServiceStart = true;
+    try
+    {
+        await manager.UpdateTargetsAsync(new[] { "must-not-stick.exe" }, 1080, credentials);
+        throw new Exception("A failed filter reload unexpectedly reported success.");
+    }
+    catch (InvalidOperationException) when (File.ReadAllText(managerConfig) == workingTargetConfig && serviceRunning)
+    {
+        // The previous active target configuration and service were recovered.
+    }
+
+    await manager.RestoreAsync();
+    if (File.ReadAllText(managerConfig) != "original-config" || File.Exists(manager.SessionPath))
+        throw new Exception("Live target update changed the original filter recovery contract.");
+}
+finally
+{
+    if (Directory.Exists(managerRoot)) Directory.Delete(managerRoot, true);
+}
+Console.WriteLine("PASS: application targets update without restarting active proxy transfers");
 
 async Task SendRequestAsync(int proxyPort, int targetPort, CancellationToken token, ProxyCredentials proxyCredentials)
 {

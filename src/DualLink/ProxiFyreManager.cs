@@ -13,20 +13,36 @@ public sealed class ProxiFyreManager
 
     private readonly Action<string> _log;
     private readonly string _stateDirectory;
+    private readonly string _proxiDirectory;
+    private readonly Func<string, string, bool, Task<ProcessResult>> _processRunner;
     private readonly string _sessionPath;
     private readonly string _backupPath;
 
-    public ProxiFyreManager(Action<string> log)
+    public ProxiFyreManager(Action<string> log) : this(
+        log,
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DualLink"),
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), ProxiDirectoryName),
+        RunProcessAsync)
+    {
+    }
+
+    internal ProxiFyreManager(
+        Action<string> log,
+        string stateDirectory,
+        string proxiDirectory,
+        Func<string, string, bool, Task<ProcessResult>> processRunner)
     {
         _log = log;
-        _stateDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DualLink");
+        _stateDirectory = Path.GetFullPath(stateDirectory);
+        _proxiDirectory = Path.GetFullPath(proxiDirectory);
+        _processRunner = processRunner;
         _sessionPath = Path.Combine(_stateDirectory, "active-session.json");
         _backupPath = Path.Combine(_stateDirectory, "proxifyre-config.backup");
         Directory.CreateDirectory(_stateDirectory);
     }
 
     public string SessionPath => _sessionPath;
-    public string ProxiDirectory => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), ProxiDirectoryName);
+    public string ProxiDirectory => _proxiDirectory;
     public string ProxiExecutable => Path.Combine(ProxiDirectory, "ProxiFyre.exe");
     public string ConfigPath => Path.Combine(ProxiDirectory, ConfigFileName);
 
@@ -60,28 +76,44 @@ public sealed class ProxiFyreManager
         };
         await WriteTextAtomicallyAsync(_sessionPath, JsonSerializer.Serialize(state));
 
-        var config = new
-        {
-            logLevel = "Info",
-            bypassLan = true,
-            proxies = new[]
-            {
-                new
-                {
-                    appNames = processMatchers.Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
-                    socks5ProxyEndpoint = $"127.0.0.1:{socksPort}",
-                    username = credentials.Username,
-                    password = credentials.Password,
-                    supportedProtocols = new[] { "TCP" }
-                }
-            }
-        };
-        await WriteTextAtomicallyAsync(ConfigPath, JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true }));
+        await WriteTextAtomicallyAsync(ConfigPath, BuildConfigJson(processMatchers, socksPort, credentials));
 
         // Remove the one-off route used while DualLink was being developed.
-        await RunProcessAsync("route.exe", "delete 199.232.209.133", false);
+        await _processRunner("route.exe", "delete 199.232.209.133", false);
         await StartServiceAsync();
         _log($"Filtering {processMatchers.Count} application matchers");
+    }
+
+    public async Task UpdateTargetsAsync(IReadOnlyCollection<string> processMatchers, int socksPort, ProxyCredentials credentials)
+    {
+        if (processMatchers.Count == 0) throw new ArgumentException("Select at least one application matcher.", nameof(processMatchers));
+        if (!File.Exists(_sessionPath)) throw new InvalidOperationException("No active DualLink filter session exists.");
+
+        BoostSessionState? state = null;
+        try { state = JsonSerializer.Deserialize<BoostSessionState>(await File.ReadAllTextAsync(_sessionPath)); }
+        catch { }
+        if (state is null || !IsExpectedState(state))
+            throw new InvalidOperationException("The active recovery state is invalid; targets were not changed.");
+        if (!File.Exists(ConfigPath))
+            throw new InvalidOperationException("The active application-filter configuration is missing.");
+
+        var previousConfig = await File.ReadAllTextAsync(ConfigPath);
+        await WriteTextAtomicallyAsync(ConfigPath, BuildConfigJson(processMatchers, socksPort, credentials));
+        try
+        {
+            await StopServiceAsync();
+            await StartServiceAsync();
+            if (!await IsServiceRunningAsync())
+                throw new InvalidOperationException("The application filter did not remain running after its target update.");
+        }
+        catch
+        {
+            await WriteTextAtomicallyAsync(ConfigPath, previousConfig);
+            try { await StartServiceAsync(); }
+            catch { }
+            throw;
+        }
+        _log($"Updated filtering for {processMatchers.Count} application matchers without closing active transfers");
     }
 
     public async Task RestoreAsync()
@@ -110,7 +142,7 @@ public sealed class ProxiFyreManager
         }
         File.Delete(_backupPath);
         File.Delete(_sessionPath);
-        await RunProcessAsync("route.exe", "delete 199.232.209.133", false);
+        await _processRunner("route.exe", "delete 199.232.209.133", false);
         _log("Application filtering restored to its previous state");
     }
 
@@ -145,8 +177,33 @@ public sealed class ProxiFyreManager
         await Task.Delay(350);
     }
 
-    private static Task<ProcessResult> RunScAsync(string verb, string service, bool throwOnError) =>
-        RunProcessAsync("sc.exe", $"{verb} {service}", throwOnError);
+    private Task<ProcessResult> RunScAsync(string verb, string service, bool throwOnError) =>
+        _processRunner("sc.exe", $"{verb} {service}", throwOnError);
+
+    internal static string BuildConfigJson(IReadOnlyCollection<string> processMatchers, int socksPort, ProxyCredentials credentials)
+    {
+        if (processMatchers.Count == 0) throw new ArgumentException("Select at least one application matcher.", nameof(processMatchers));
+        if (socksPort is < 1 or > 65535) throw new ArgumentOutOfRangeException(nameof(socksPort));
+        var config = new
+        {
+            logLevel = "Info",
+            bypassLan = true,
+            proxies = new[]
+            {
+                new
+                {
+                    appNames = processMatchers.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
+                    socks5ProxyEndpoint = $"127.0.0.1:{socksPort}",
+                    username = credentials.Username,
+                    password = credentials.Password,
+                    supportedProtocols = new[] { "TCP" }
+                }
+            }
+        };
+        if (config.proxies[0].appNames.Length == 0)
+            throw new ArgumentException("Select at least one valid application matcher.", nameof(processMatchers));
+        return JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
+    }
 
     private static async Task WriteTextAtomicallyAsync(string path, string content)
     {
