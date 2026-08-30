@@ -2,6 +2,10 @@
 
 All notable DualLink changes are recorded here. Versions follow semantic versioning.
 
+## 3.0.0-dev.3 - 2026-08-30
+
+- Development checkpoint for the next DualLink 3.0 feature batch.
+
 ## 3.0.0-dev.2 - 2026-08-30
 
 - Added an on-demand running-application picker with a file-browse fallback, keeping local process discovery out of background polling and documenting its privacy behavior.
