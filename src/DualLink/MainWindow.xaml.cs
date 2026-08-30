@@ -250,7 +250,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 .ToArray();
             return degraded.Length > 0
                 ? string.Join(" · ", degraded)
-                : $"{SelectedRoutingModeOption?.DisplayName ?? "Smart"} · healthy";
+                : statuses.Count > 1 && statuses.All(x => x.SuccessfulConnections > 0)
+                    ? $"{SelectedRoutingModeOption?.DisplayName ?? "Smart"} · both connections used"
+                    : $"{SelectedRoutingModeOption?.DisplayName ?? "Smart"} · healthy";
         }
     }
     public string VersionText => $"Version {UpdateChecker.CurrentVersion}";
@@ -769,10 +771,14 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (link is null) return "Disconnected";
         var status = _balancer.RouteStatuses.FirstOrDefault(x => x.Address.Equals(link.Address, StringComparison.OrdinalIgnoreCase));
         if (string.IsNullOrEmpty(status.Address)) return "Ready";
-        if (status.QualityLabel == "Unstable") return $"Unstable · {status.ReliabilityPercent}%";
-        return status.ConnectLatencyMs is double latency
+        var quality = status.QualityLabel == "Unstable"
+            ? $"Unstable · {status.ReliabilityPercent}%"
+            : status.ConnectLatencyMs is double latency
             ? $"{status.QualityLabel} · {latency:0} ms"
             : status.QualityLabel;
+        return _boosting && status.SuccessfulConnections > 0
+            ? $"{quality} · {status.SuccessfulConnections} used"
+            : quality;
     }
 
     private void NetworkChanged(object? sender, EventArgs e)

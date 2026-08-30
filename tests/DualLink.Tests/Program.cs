@@ -34,7 +34,8 @@ if (!sources.Contains("127.0.0.1") || !sources.Contains("127.0.0.2"))
 
 var measuredRoutes = proxy.RouteStatuses;
 if (measuredRoutes.Any(x => x.ConnectLatencyMs is null or <= 0 || x.LastSuccessUtc is null || x.ReliabilityPercent is < 1 or > 100) ||
-    measuredRoutes.Sum(x => x.DownloadedBytes) <= 0 || measuredRoutes.Sum(x => x.UploadedBytes) <= 0)
+    measuredRoutes.Sum(x => x.DownloadedBytes) <= 0 || measuredRoutes.Sum(x => x.UploadedBytes) <= 0 ||
+    measuredRoutes.Any(x => x.SuccessfulConnections <= 0))
     throw new Exception("Successful routes did not retain connection-quality measurements.");
 proxy.SetBandwidthLimit(75);
 if (proxy.BandwidthLimitMbps != 75)

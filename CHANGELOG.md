@@ -7,6 +7,7 @@ All notable DualLink changes are recorded here. Versions follow semantic version
 - Opened the DualLink 3.0 development line around accurate app-scoped traffic intelligence, clearer connection evidence, and stronger recovery behavior.
 - Kept one shared upload/download bandwidth limit and intentionally excluded per-application setting profiles and settings import/export.
 - Added byte-accurate per-route upload and download accounting inside the local proxy, and switched the dashboard, graph, and tray to selected-application traffic while boost is active.
+- Added per-route successful-connection evidence so Details and the tray can confirm when both links have actually carried selected-app sessions.
 
 ## 2.3.0-dev.3 - 2026-08-29
 

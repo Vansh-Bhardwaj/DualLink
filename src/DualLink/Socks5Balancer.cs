@@ -429,6 +429,7 @@ public sealed class Socks5Balancer : IAsyncDisposable
         private double _reliability = 1d;
         private long _downloadedBytes;
         private long _uploadedBytes;
+        private long _successfulConnections;
 
         public RouteState(RouteDefinition definition) => Update(definition);
         public string Address { get; private set; } = string.Empty;
@@ -469,11 +470,13 @@ public sealed class Socks5Balancer : IAsyncDisposable
         {
             Interlocked.Exchange(ref _downloadedBytes, 0);
             Interlocked.Exchange(ref _uploadedBytes, 0);
+            Interlocked.Exchange(ref _successfulConnections, 0);
         }
         public void MarkSuccess(double connectLatencyMs)
         {
             Interlocked.Exchange(ref _failures, 0);
             Interlocked.Exchange(ref _unhealthyUntilTicks, DateTime.MinValue.Ticks);
+            Interlocked.Increment(ref _successfulConnections);
             lock (_qualityGate)
             {
                 _connectLatencyMs = _connectLatencyMs is null
@@ -499,7 +502,8 @@ public sealed class Socks5Balancer : IAsyncDisposable
                 return new RouteStatus(
                     Address, Name, Weight, ActiveConnections, Failures, UnhealthyUntilUtc,
                     _connectLatencyMs, _lastSuccessUtc, _reliability,
-                    Interlocked.Read(ref _downloadedBytes), Interlocked.Read(ref _uploadedBytes));
+                    Interlocked.Read(ref _downloadedBytes), Interlocked.Read(ref _uploadedBytes),
+                    Interlocked.Read(ref _successfulConnections));
         }
     }
 
