@@ -32,7 +32,6 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private UserSettings _settings = new();
     private LinkInfo? _selectedEthernet;
     private LinkInfo? _selectedWifi;
-    private BandwidthOption? _selectedBandwidthOption;
     private RoutingModeOption? _selectedRoutingModeOption;
     private UpdateChannelOption? _selectedUpdateChannelOption;
     private bool _autoBoost = true;
@@ -119,14 +118,31 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public ObservableCollection<string> Activity { get; } = new();
     public ObservableCollection<ConnectionCheckResult> Diagnostics { get; } = new();
     public ObservableCollection<RunningAppInfo> RunningApplications { get; } = new();
-    public ObservableCollection<BandwidthOption> BandwidthOptions { get; } = new()
+    public ObservableCollection<RouteSpeedOption> RouteSpeedOptions { get; } = new()
     {
-        new BandwidthOption { Mbps = 0, DisplayName = "No limit" },
-        new BandwidthOption { Mbps = 25, DisplayName = "25 Mbps" },
-        new BandwidthOption { Mbps = 50, DisplayName = "50 Mbps" },
-        new BandwidthOption { Mbps = 100, DisplayName = "100 Mbps" },
-        new BandwidthOption { Mbps = 200, DisplayName = "200 Mbps" },
-        new BandwidthOption { Mbps = 300, DisplayName = "300 Mbps" }
+        new() { Mbps = 0, DisplayName = "Off" },
+        new() { Mbps = 1, DisplayName = "1 Mbps" },
+        new() { Mbps = 2, DisplayName = "2 Mbps" },
+        new() { Mbps = 5, DisplayName = "5 Mbps" },
+        new() { Mbps = 10, DisplayName = "10 Mbps" },
+        new() { Mbps = 15, DisplayName = "15 Mbps" },
+        new() { Mbps = 20, DisplayName = "20 Mbps" },
+        new() { Mbps = 25, DisplayName = "25 Mbps" },
+        new() { Mbps = 30, DisplayName = "30 Mbps" },
+        new() { Mbps = 40, DisplayName = "40 Mbps" },
+        new() { Mbps = 50, DisplayName = "50 Mbps" },
+        new() { Mbps = 75, DisplayName = "75 Mbps" },
+        new() { Mbps = 100, DisplayName = "100 Mbps" },
+        new() { Mbps = 125, DisplayName = "125 Mbps" },
+        new() { Mbps = 150, DisplayName = "150 Mbps" },
+        new() { Mbps = 200, DisplayName = "200 Mbps" },
+        new() { Mbps = 250, DisplayName = "250 Mbps" },
+        new() { Mbps = 300, DisplayName = "300 Mbps" },
+        new() { Mbps = 400, DisplayName = "400 Mbps" },
+        new() { Mbps = 500, DisplayName = "500 Mbps" },
+        new() { Mbps = 750, DisplayName = "750 Mbps" },
+        new() { Mbps = 1000, DisplayName = "1 Gbps" },
+        new() { Mbps = LinkInfo.FullSpeedControlMbps, DisplayName = "Full speed" }
     };
     public ObservableCollection<RoutingModeOption> RoutingModeOptions { get; } = new()
     {
@@ -162,19 +178,6 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         get => _closeToTray;
         set { if (_closeToTray != value) { _closeToTray = value; OnPropertyChanged(); SaveSettings(); } }
-    }
-
-    public BandwidthOption? SelectedBandwidthOption
-    {
-        get => _selectedBandwidthOption;
-        set
-        {
-            if (_selectedBandwidthOption == value) return;
-            _selectedBandwidthOption = value;
-            OnPropertyChanged();
-            _balancer.SetBandwidthLimit(value?.Mbps ?? 0);
-            SaveSettings();
-        }
     }
 
     public RoutingModeOption? SelectedRoutingModeOption
@@ -308,8 +311,6 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         AutoBoost = _settings.AutoBoost || !File.Exists(_settingsPath);
         CloseToTray = _settings.CloseToTray;
         _armed = _settings.Armed;
-        var savedLimit = _settings.BandwidthLimitMbps > 0 ? _settings.BandwidthLimitMbps : _settings.DownloadLimitMbps;
-        SelectedBandwidthOption = BandwidthOptions.FirstOrDefault(x => x.Mbps == savedLimit) ?? BandwidthOptions[0];
         SelectedRoutingModeOption = RoutingModeOptions.FirstOrDefault(x => x.Mode == _settings.RoutingMode) ?? RoutingModeOptions[0];
         SelectedUpdateChannelOption = UpdateChannelOptions.FirstOrDefault(x => x.Channel == _settings.UpdateChannel) ?? UpdateChannelOptions[0];
         var defaults = new List<AppProfile>
@@ -376,9 +377,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             Log($"Detected {EthernetLinks.Count} Ethernet and {WifiLinks.Count} Wi-Fi internet link(s)");
     }
 
-    private static double SavedRouteControl(int legacyWeight, int speedLimitMbps) => legacyWeight <= 0
+    private static int SavedRouteControl(int legacyWeight, int speedLimitMbps) => legacyWeight <= 0
         ? 0
-        : speedLimitMbps <= 0 ? LinkInfo.FullSpeedControlMbps : Math.Min(speedLimitMbps, LinkInfo.FullSpeedControlMbps - 5);
+        : speedLimitMbps <= 0 ? LinkInfo.FullSpeedControlMbps : Math.Min(speedLimitMbps, 1000);
 
     private void LoadPreviewAdapters()
     {
@@ -634,8 +635,6 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 _settings.WifiSpeedLimitMbps = SelectedWifi.SpeedLimitMbps;
             }
             _settings.CloseToTray = CloseToTray;
-            _settings.BandwidthLimitMbps = SelectedBandwidthOption?.Mbps ?? 0;
-            _settings.DownloadLimitMbps = 0;
             _settings.RoutingMode = SelectedRoutingModeOption?.Mode ?? RoutingMode.Smart;
             _settings.UpdateChannel = SelectedUpdateChannelOption?.Channel ?? UpdateChannel.Stable;
             _settings.SelectedProfiles = Profiles.Where(x => x.IsSelected).Select(x => x.Name).ToList();
@@ -705,15 +704,16 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private void WifiWeightUp_Click(object sender, RoutedEventArgs e) => ChangeWeight(SelectedWifi, 1);
     private void EthernetOnly_Click(object sender, RoutedEventArgs e) => UseOnly(SelectedEthernet, SelectedWifi);
     private void WifiOnly_Click(object sender, RoutedEventArgs e) => UseOnly(SelectedWifi, SelectedEthernet);
-    private void RouteControl_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    private void RouteLimit_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
         if (_loadingSettings || !IsInitialized) return;
-        var changed = ReferenceEquals(sender, EthernetRouteSlider) ? SelectedEthernet : SelectedWifi;
+        var changed = ReferenceEquals(sender, EthernetRouteLimit) ? SelectedEthernet : SelectedWifi;
         if (changed is null) return;
-        changed.RouteControlMbps = e.NewValue;
+        if (sender is System.Windows.Controls.ComboBox { SelectedItem: RouteSpeedOption option })
+            changed.RouteControlMbps = option.Mbps;
         if (SelectedEthernet is { Weight: 0 } && SelectedWifi is { Weight: 0 })
         {
-            changed.RouteControlMbps = 5;
+            changed.RouteControlMbps = LinkInfo.FullSpeedControlMbps;
             Log("Keep at least one connection on");
         }
         ApplyRouteMix();

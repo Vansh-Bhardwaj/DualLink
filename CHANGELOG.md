@@ -8,7 +8,7 @@ All notable DualLink changes are recorded here. Versions follow semantic version
 - Added a 120-connection soak test that proves exact connection accounting and complete client-task cleanup after concurrent traffic.
 - Replaced the misleading route-share buttons with independent 0–500 Mbps route controls; Off disables new sessions, Full removes the cap, and every intermediate value throttles that route's active download and upload traffic immediately.
 - Made Balanced routing distribute new connections in proportion to each route's live speed setting, while Smart routing uses the same setting in its load score.
-- Simplified the connection pane to compact route sliders plus Automatic, Mode, and Total limit controls.
+- Simplified the connection pane to compact independent Mbps dropdowns plus Automatic and Mode controls, removing the combined total limiter.
 
 ## 3.0.0-dev.4 - 2026-08-30
 

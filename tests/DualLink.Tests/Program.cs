@@ -39,11 +39,6 @@ if (measuredRoutes.Any(x => x.ConnectLatencyMs is null or <= 0 || x.LastSuccessU
     measuredRoutes.Sum(x => x.DownloadedBytes) <= 0 || measuredRoutes.Sum(x => x.UploadedBytes) <= 0 ||
     measuredRoutes.Any(x => x.SuccessfulConnections <= 0))
     throw new Exception("Successful routes did not retain connection-quality measurements.");
-proxy.SetBandwidthLimit(75);
-if (proxy.BandwidthLimitMbps != 75)
-    throw new Exception("Combined bandwidth limit was not applied live.");
-proxy.SetBandwidthLimit(0);
-
 proxy.UpdateSources(new[] { ("127.0.0.1", 0), ("127.0.0.2", 1) });
 for (var i = 0; i < 2; i++) await SendRequestAsync(proxy.BoundPort, serverPort, cts.Token, credentials);
 
@@ -66,7 +61,7 @@ if (proxy.RouteStatuses.Count != 2 || proxy.RouteStatuses.Any(x => !x.AcceptingN
 await proxy.StopAsync();
 
 Console.WriteLine("PASS: dual-link rotation and live zero-weight switching: " + string.Join(", ", sources));
-Console.WriteLine("PASS: successful routes expose latency, app traffic, and live combined bandwidth state");
+Console.WriteLine("PASS: successful routes expose latency and app traffic state");
 Console.WriteLine("PASS: per-boost contribution evidence resets between boosts");
 
 var authServer = new TcpListener(IPAddress.Loopback, 0);
@@ -193,15 +188,15 @@ for (var i = 0; i < 4; i++)
     await limiter.ThrottleAsync(64 * 1024, cts.Token);
 throttleTimer.Stop();
 if (throttleTimer.Elapsed < TimeSpan.FromMilliseconds(650) || throttleTimer.Elapsed > TimeSpan.FromSeconds(3))
-    throw new Exception($"Combined bandwidth limiter timing was outside tolerance: {throttleTimer.Elapsed.TotalMilliseconds:0} ms.");
+    throw new Exception($"Route rate limiter timing was outside tolerance: {throttleTimer.Elapsed.TotalMilliseconds:0} ms.");
 limiter.SetLimit(0);
 var unlimitedTimer = System.Diagnostics.Stopwatch.StartNew();
 await limiter.ThrottleAsync(64 * 1024, cts.Token);
 unlimitedTimer.Stop();
 if (unlimitedTimer.Elapsed > TimeSpan.FromMilliseconds(100))
-    throw new Exception("Disabled bandwidth limiter still delayed traffic.");
+    throw new Exception("Disabled route limiter still delayed traffic.");
 
-Console.WriteLine($"PASS: shared upload and download limiter pacing: {throttleTimer.Elapsed.TotalMilliseconds:0} ms");
+Console.WriteLine($"PASS: per-route upload and download limiter pacing: {throttleTimer.Elapsed.TotalMilliseconds:0} ms");
 
 var friendlyLink = new LinkInfo
 {
@@ -335,20 +330,27 @@ var soakServerTask = Task.Run(async () =>
 }, cts.Token);
 await using (var soakProxy = new Socks5Balancer(0, _ => { }, credentials))
 {
-    await soakProxy.StartAsync(new[] { ("127.0.0.1", 1), ("127.0.0.2", 1) });
+    await soakProxy.StartAsync(new[]
+    {
+        new RouteDefinition("127.0.0.1", 1, true, "Ethernet", 50),
+        new RouteDefinition("127.0.0.2", 1, false, "Wi-Fi", 500)
+    }, RoutingMode.Balanced);
     for (var offset = 0; offset < soakConnections; offset += 20)
         await Task.WhenAll(Enumerable.Range(offset, Math.Min(20, soakConnections - offset))
             .Select(_ => SendRequestAsync(soakProxy.BoundPort, soakServerPort, cts.Token, credentials)));
     await soakServerTask;
     await WaitForClientsToDrainAsync(soakProxy, cts.Token);
     var soakStatuses = soakProxy.RouteStatuses;
+    var ethernetConnections = soakSources.Count(x => x == "127.0.0.1");
+    var wifiConnections = soakSources.Count(x => x == "127.0.0.2");
     if (soakStatuses.Count != 2 || soakStatuses.Any(x => x.SuccessfulConnections == 0) ||
         soakStatuses.Sum(x => x.SuccessfulConnections) != soakConnections ||
-        soakProxy.ActiveConnections != 0 || soakProxy.PendingClientTasks != 0)
+        soakProxy.ActiveConnections != 0 || soakProxy.PendingClientTasks != 0 ||
+        wifiConnections < ethernetConnections * 5)
         throw new Exception("Long-session connection accounting or client-task cleanup regressed.");
 }
 soakServer.Stop();
-Console.WriteLine($"PASS: {soakConnections}-connection soak leaves no active sessions or retained client tasks");
+Console.WriteLine($"PASS: {soakConnections}-connection soak favors the higher Wi-Fi limit and leaves no retained tasks");
 
 var managerRoot = Path.Combine(Path.GetTempPath(), $"DualLink-manager-test-{Guid.NewGuid():N}");
 var managerState = Path.Combine(managerRoot, "state");

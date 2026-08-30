@@ -22,7 +22,6 @@ public sealed class Socks5Balancer : IAsyncDisposable
     private long _nextSource = -1;
     private long _nextClient;
     private int _activeConnections;
-    private readonly TransferRateLimiter _bandwidthLimiter = new();
     private readonly ConcurrentDictionary<long, Task> _clientTasks = new();
     private readonly SemaphoreSlim _connectionGate = new(512, 512);
     private RoutingMode _mode = RoutingMode.Smart;
@@ -37,7 +36,6 @@ public sealed class Socks5Balancer : IAsyncDisposable
     public int ActiveConnections => Volatile.Read(ref _activeConnections);
     internal int PendingClientTasks => _clientTasks.Count;
     public bool IsRunning => _listener is not null;
-    public int BandwidthLimitMbps => _bandwidthLimiter.MegabitsPerSecond;
     public int BoundPort => (_listener?.LocalEndpoint as IPEndPoint)?.Port ?? 0;
     public RoutingMode Mode => _mode;
     public IReadOnlyList<RouteStatus> RouteStatuses
@@ -51,12 +49,6 @@ public sealed class Socks5Balancer : IAsyncDisposable
                     .Select(x => x.Snapshot()).ToArray();
             }
         }
-    }
-
-    public void SetBandwidthLimit(int megabitsPerSecond)
-    {
-        _bandwidthLimiter.SetLimit(megabitsPerSecond);
-        _log(megabitsPerSecond <= 0 ? "Bandwidth limit disabled" : $"Combined bandwidth limit set to {megabitsPerSecond} Mbps");
     }
 
     public Task StartAsync(IEnumerable<(string Address, int Weight)> sources) =>
@@ -241,7 +233,6 @@ public sealed class Socks5Balancer : IAsyncDisposable
             {
                 var count = await source.ReadAsync(buffer.AsMemory(0, buffer.Length), token);
                 if (count == 0) break;
-                await _bandwidthLimiter.ThrottleAsync(count, token);
                 await route.ThrottleAsync(count, token);
                 await destination.WriteAsync(buffer.AsMemory(0, count), token);
                 if (isDownload) route.RecordDownload(count);

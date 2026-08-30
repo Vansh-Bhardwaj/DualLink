@@ -206,45 +206,5 @@
       </Setter>
     </Style>
 
-    <Style x:Key="RouteSlider" TargetType="Slider">
-      <Setter Property="Height" Value="24" />
-      <Setter Property="Minimum" Value="0" />
-      <Setter Property="Maximum" Value="500" />
-      <Setter Property="TickFrequency" Value="5" />
-      <Setter Property="IsSnapToTickEnabled" Value="True" />
-      <Setter Property="IsMoveToPointEnabled" Value="True" />
-      <Setter Property="FocusVisualStyle" Value="{x:Null}" />
-      <Setter Property="Cursor" Value="Hand" />
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="Slider">
-            <Grid Height="24">
-              <Border Height="4" CornerRadius="2" Background="#414249" VerticalAlignment="Center" />
-              <Track x:Name="PART_Track" VerticalAlignment="Center">
-                <Track.DecreaseRepeatButton>
-                  <RepeatButton Command="{x:Static Slider.DecreaseLarge}" Focusable="False">
-                    <RepeatButton.Template><ControlTemplate TargetType="RepeatButton"><Border Height="4" CornerRadius="2" Background="{StaticResource AccentBrush}" /></ControlTemplate></RepeatButton.Template>
-                  </RepeatButton>
-                </Track.DecreaseRepeatButton>
-                <Track.Thumb>
-                  <Thumb Width="14" Height="14">
-                    <Thumb.Template>
-                      <ControlTemplate TargetType="Thumb">
-                        <Ellipse x:Name="Dot" Fill="#F4F4F7" Stroke="#111215" StrokeThickness="2" />
-                        <ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Dot" Property="Fill" Value="#FFFFFF" /></Trigger></ControlTemplate.Triggers>
-                      </ControlTemplate>
-                    </Thumb.Template>
-                  </Thumb>
-                </Track.Thumb>
-                <Track.IncreaseRepeatButton>
-                  <RepeatButton Command="{x:Static Slider.IncreaseLarge}" Focusable="False" Opacity="0" />
-                </Track.IncreaseRepeatButton>
-              </Track>
-            </Grid>
-            <ControlTemplate.Triggers><Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.4" /></Trigger></ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-    </Style>
   </Application.Resources>
 </Application>
