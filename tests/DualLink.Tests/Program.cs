@@ -134,6 +134,23 @@ await failoverProxy.StopAsync();
 failoverServer.Stop();
 Console.WriteLine("PASS: failover quarantines an unavailable primary and uses the healthy backup");
 
+var closedPortProbe = new TcpListener(IPAddress.Loopback, 0);
+closedPortProbe.Start();
+var closedPort = ((IPEndPoint)closedPortProbe.LocalEndpoint).Port;
+closedPortProbe.Stop();
+await using var refusalProxy = new Socks5Balancer(0, _ => { }, credentials);
+await refusalProxy.StartAsync(new[]
+{
+    new RouteDefinition("127.0.0.1", 1, true, "First healthy route"),
+    new RouteDefinition("127.0.0.2", 1, false, "Second healthy route")
+}, RoutingMode.Smart);
+await ExpectConnectionRejectedAsync(refusalProxy.BoundPort, closedPort, cts.Token, credentials);
+var refusalStatuses = refusalProxy.RouteStatuses;
+if (refusalStatuses.Any(x => x.ConsecutiveFailures != 0 || x.ReliabilityPercent != 100 || !x.IsHealthy))
+    throw new Exception("A destination refusal incorrectly reduced route health.");
+await refusalProxy.StopAsync();
+Console.WriteLine("PASS: destination refusal does not quarantine healthy routes");
+
 var filterRunning = false;
 var restartCount = 0;
 var health = new BoostHealthMonitor(
@@ -224,4 +241,23 @@ async Task WriteCredentialsAsync(Stream stream, ProxyCredentials value, Cancella
     request[2 + username.Length] = (byte)password.Length;
     password.CopyTo(request, 3 + username.Length);
     await stream.WriteAsync(request, token);
+}
+
+async Task ExpectConnectionRejectedAsync(int proxyPort, int targetPort, CancellationToken token, ProxyCredentials proxyCredentials)
+{
+    using var client = new TcpClient();
+    await client.ConnectAsync(IPAddress.Loopback, proxyPort, token);
+    var stream = client.GetStream();
+    await stream.WriteAsync(new byte[] { 5, 1, 2 }, token);
+    var methodReply = new byte[2];
+    await stream.ReadExactlyAsync(methodReply, token);
+    if (methodReply[1] != 2) throw new Exception("SOCKS method negotiation failed");
+    await WriteCredentialsAsync(stream, proxyCredentials, token);
+    var authReply = new byte[2];
+    await stream.ReadExactlyAsync(authReply, token);
+    if (authReply[1] != 0) throw new Exception("SOCKS authentication failed");
+    await stream.WriteAsync(new byte[] { 5, 1, 0, 1, 127, 0, 0, 1, (byte)(targetPort >> 8), (byte)targetPort }, token);
+    var connectReply = new byte[10];
+    await stream.ReadExactlyAsync(connectReply, token);
+    if (connectReply[1] == 0) throw new Exception("Closed destination unexpectedly accepted a connection");
 }
