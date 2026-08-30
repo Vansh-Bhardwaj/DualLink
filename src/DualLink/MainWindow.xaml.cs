@@ -937,14 +937,23 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
             if (_boosting)
             {
+                var routeStatuses = _balancer.RouteStatuses;
+                var contributing = routeStatuses.Where(x => x.SuccessfulConnections > 0).ToArray();
+                var activeText = ActiveConnections == 1 ? "1 session is active now." : $"{ActiveConnections} sessions are active now.";
+                var routeMessage = routeStatuses.Count == 1 && contributing.Length == 1
+                    ? $"{contributing[0].Name} is the only enabled connection and is carrying selected-app traffic. {activeText}"
+                    : contributing.Length >= 2
+                        ? $"Both connections have carried selected-app sessions in this boost. {activeText}"
+                        : contributing.Length == 1
+                            ? $"Only {contributing[0].Name} has carried sessions so far. DualLink assigns whole new connections; one connection cannot be split."
+                            : "No selected application has opened a routed session yet.";
+                var routeState = (routeStatuses.Count == 1 && contributing.Length == 1) || contributing.Length >= 2
+                    ? DiagnosticState.Good
+                    : DiagnosticState.Notice;
                 Diagnostics.Add(new ConnectionCheckResult(
                     "Active routing",
-                    ActiveConnections > 1
-                        ? $"{ActiveConnections} sessions can be distributed between the selected connections."
-                        : ActiveConnections == 1
-                            ? "Only one session is active, so it cannot be divided between both connections."
-                            : "No selected application is opening network sessions right now.",
-                    ActiveConnections > 1 ? DiagnosticState.Good : DiagnosticState.Notice));
+                    routeMessage,
+                    routeState));
             }
             else
             {
