@@ -24,7 +24,7 @@ DualLink leaves normal Windows routing alone for every application you have not 
 1. Connect Ethernet and Wi-Fi/hotspot.
 2. Pick each connection. Wi-Fi choices show the connected network or hotspot name.
 3. Choose the applications and select **Enable boost**.
-4. Use **Use this only** or lower a route to **Off** when you want new connections on one link. Existing connections are left alone.
+4. Use **Use this only** or lower a route to **Off** when you want new connections on one link. Existing connections are left alone and shown as draining until they finish.
 5. Optionally choose one combined bandwidth limit to leave room for streaming, calls, or browsing. It covers download and upload traffic and changes live.
 6. Close the window to keep DualLink in the notification area. Hover for live combined speed, connection quality, and session context, or right-click for the compact DualLink status menu. Use **Exit and restore** to return the filter to its previous configuration.
 

@@ -17,6 +17,7 @@ public sealed class Socks5Balancer : IAsyncDisposable
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
     private List<RouteState> _routes = new();
+    private readonly Dictionary<string, RouteState> _sessionRoutes = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _sourceLock = new();
     private long _nextSource = -1;
     private long _nextClient;
@@ -34,6 +35,7 @@ public sealed class Socks5Balancer : IAsyncDisposable
     }
 
     public int ActiveConnections => Volatile.Read(ref _activeConnections);
+    internal int PendingClientTasks => _clientTasks.Count;
     public bool IsRunning => _listener is not null;
     public int BandwidthLimitMbps => _bandwidthLimiter.MegabitsPerSecond;
     public int BoundPort => (_listener?.LocalEndpoint as IPEndPoint)?.Port ?? 0;
@@ -44,7 +46,9 @@ public sealed class Socks5Balancer : IAsyncDisposable
         {
             lock (_sourceLock)
             {
-                return _routes.Select(x => x.Snapshot()).ToArray();
+                var enabled = new HashSet<RouteState>(_routes);
+                return _routes.Concat(_sessionRoutes.Values.Where(x => !enabled.Contains(x)))
+                    .Select(x => x.Snapshot()).ToArray();
             }
         }
     }
@@ -61,6 +65,11 @@ public sealed class Socks5Balancer : IAsyncDisposable
     public Task StartAsync(IEnumerable<RouteDefinition> sources, RoutingMode mode = RoutingMode.Smart)
     {
         if (IsRunning) return Task.CompletedTask;
+        lock (_sourceLock)
+        {
+            _routes = new List<RouteState>();
+            _sessionRoutes.Clear();
+        }
         UpdateSources(sources, mode);
         lock (_sourceLock)
         {
@@ -86,15 +95,17 @@ public sealed class Socks5Balancer : IAsyncDisposable
 
         lock (_sourceLock)
         {
-            var previous = _routes.ToDictionary(x => x.Address, StringComparer.OrdinalIgnoreCase);
+            foreach (var route in _sessionRoutes.Values) route.SetAcceptingNewConnections(false);
             _routes = definitions.Select(x =>
             {
-                if (previous.TryGetValue(x.Address, out var existing))
+                if (_sessionRoutes.TryGetValue(x.Address, out var existing))
                 {
                     existing.Update(x);
                     return existing;
                 }
-                return new RouteState(x);
+                var created = new RouteState(x);
+                _sessionRoutes.Add(x.Address, created);
+                return created;
             }).ToList();
             _mode = mode;
         }
@@ -437,6 +448,7 @@ public sealed class Socks5Balancer : IAsyncDisposable
         public string Name { get; private set; } = string.Empty;
         public int Weight { get; private set; }
         public bool IsPrimary { get; private set; }
+        public bool AcceptingNewConnections { get; private set; }
         public int ActiveConnections => Volatile.Read(ref _activeConnections);
         public int Failures => Volatile.Read(ref _failures);
         public DateTime UnhealthyUntilUtc => new(Volatile.Read(ref _unhealthyUntilTicks), DateTimeKind.Utc);
@@ -460,7 +472,10 @@ public sealed class Socks5Balancer : IAsyncDisposable
             Name = definition.Name ?? definition.Address;
             Weight = Math.Clamp(definition.Weight, 1, 10);
             IsPrimary = definition.IsPrimary;
+            AcceptingNewConnections = true;
         }
+
+        public void SetAcceptingNewConnections(bool value) => AcceptingNewConnections = value;
 
         public void Reserve() => Interlocked.Increment(ref _activeConnections);
         public void Release() => Interlocked.Decrement(ref _activeConnections);
@@ -500,7 +515,7 @@ public sealed class Socks5Balancer : IAsyncDisposable
         {
             lock (_qualityGate)
                 return new RouteStatus(
-                    Address, Name, Weight, ActiveConnections, Failures, UnhealthyUntilUtc,
+                    Address, Name, Weight, AcceptingNewConnections, ActiveConnections, Failures, UnhealthyUntilUtc,
                     _connectLatencyMs, _lastSuccessUtc, _reliability,
                     Interlocked.Read(ref _downloadedBytes), Interlocked.Read(ref _uploadedBytes),
                     Interlocked.Read(ref _successfulConnections));

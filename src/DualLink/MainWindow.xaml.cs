@@ -254,7 +254,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             if (_previewMode) return "394 MB downloaded · 67 MB uploaded · 27 connections";
             if (!_boosting) return "Usage starts at zero whenever boost begins.";
-            var statuses = _balancer.RouteStatuses;
+            var statuses = _balancer.RouteStatuses.Where(x => x.AcceptingNewConnections).ToArray();
             var downloaded = statuses.Sum(x => x.DownloadedBytes);
             var uploaded = statuses.Sum(x => x.UploadedBytes);
             var connections = statuses.Sum(x => x.SuccessfulConnections);
@@ -268,10 +268,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         get
         {
             if (!_balancer.IsRunning) return "Idle";
-            var statuses = _balancer.RouteStatuses;
+            var allStatuses = _balancer.RouteStatuses;
+            var statuses = allStatuses.Where(x => x.AcceptingNewConnections).ToArray();
+            var draining = allStatuses.Where(x => !x.AcceptingNewConnections && x.ActiveConnections > 0).Select(x => x.Name).ToArray();
+            string WithDrainingState(string value) => draining.Length == 0 ? value : $"{value} · {string.Join(", ", draining)} draining";
             var unavailable = statuses.Where(x => !x.IsHealthy).Select(x => x.Name).ToArray();
             if (unavailable.Length > 0)
-                return $"Using backup · {string.Join(", ", unavailable)} unavailable";
+                return WithDrainingState($"Using backup · {string.Join(", ", unavailable)} unavailable");
 
             var degraded = statuses
                 .Where(x => x.QualityLabel is "Unstable" or "Fair" or "Slow")
@@ -279,11 +282,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                     ? $"{x.Name} unstable ({x.ReliabilityPercent}%)"
                     : $"{x.Name} {x.QualityLabel.ToLowerInvariant()}")
                 .ToArray();
-            return degraded.Length > 0
+            var health = degraded.Length > 0
                 ? string.Join(" · ", degraded)
-                : statuses.Count > 1 && statuses.All(x => x.SuccessfulConnections > 0)
+                : statuses.Length > 1 && statuses.All(x => x.SuccessfulConnections > 0)
                     ? $"{SelectedRoutingModeOption?.DisplayName ?? "Smart"} · both connections used"
                     : $"{SelectedRoutingModeOption?.DisplayName ?? "Smart"} · healthy";
+            return WithDrainingState(health);
         }
     }
     public string VersionText => $"Version {UpdateChecker.CurrentVersion}";
@@ -805,6 +809,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (!_balancer.IsRunning) return;
         _balancer.UpdateSources(BuildRouteDefinitions(), SelectedRoutingModeOption?.Mode ?? RoutingMode.Smart);
         UpdateActiveRouteStatus();
+        RefreshBoostContributionProperties();
     }
 
     private RouteDefinition[] BuildRouteDefinitions()
@@ -837,9 +842,15 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private string GetRouteContribution(LinkInfo? link)
     {
         if (link is null) return "Not connected";
-        if (link.Weight == 0) return "Turned off";
         if (!_boosting) return "Waiting";
         var status = _balancer.RouteStatuses.FirstOrDefault(x => x.Address.Equals(link.Address, StringComparison.OrdinalIgnoreCase));
+        if (link.Weight == 0)
+        {
+            if (string.IsNullOrEmpty(status.Address)) return "Turned off";
+            var retiredTotal = status.DownloadedBytes + status.UploadedBytes;
+            if (status.ActiveConnections > 0) return $"Draining · {FormatBytes(retiredTotal)}";
+            return retiredTotal > 0 ? $"Off · {FormatBytes(retiredTotal)} used" : "Turned off";
+        }
         if (string.IsNullOrEmpty(status.Address)) return "Not active";
         var total = status.DownloadedBytes + status.UploadedBytes;
         return total == 0 && status.SuccessfulConnections == 0
@@ -1028,16 +1039,17 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             if (_boosting)
             {
                 var routeStatuses = _balancer.RouteStatuses;
+                var enabledRouteCount = routeStatuses.Count(x => x.AcceptingNewConnections);
                 var contributing = routeStatuses.Where(x => x.SuccessfulConnections > 0).ToArray();
                 var activeText = ActiveConnections == 1 ? "1 session is active now." : $"{ActiveConnections} sessions are active now.";
-                var routeMessage = routeStatuses.Count == 1 && contributing.Length == 1
+                var routeMessage = enabledRouteCount == 1 && contributing.Length == 1
                     ? $"{contributing[0].Name} is the only enabled connection and is carrying selected-app traffic. {activeText}"
                     : contributing.Length >= 2
                         ? $"Both connections have carried selected-app sessions in this boost. {activeText}"
                         : contributing.Length == 1
                             ? $"Only {contributing[0].Name} has carried sessions so far. DualLink assigns whole new connections; one connection cannot be split."
                             : "No selected application has opened a routed session yet.";
-                var routeState = (routeStatuses.Count == 1 && contributing.Length == 1) || contributing.Length >= 2
+                var routeState = (enabledRouteCount == 1 && contributing.Length == 1) || contributing.Length >= 2
                     ? DiagnosticState.Good
                     : DiagnosticState.Notice;
                 Diagnostics.Add(new ConnectionCheckResult(

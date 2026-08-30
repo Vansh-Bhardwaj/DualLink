@@ -24,6 +24,7 @@ public readonly record struct RouteStatus(
     string Address,
     string Name,
     int Weight,
+    bool AcceptingNewConnections,
     int ActiveConnections,
     int ConsecutiveFailures,
     DateTime UnhealthyUntilUtc,

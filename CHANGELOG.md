@@ -4,7 +4,8 @@ All notable DualLink changes are recorded here. Versions follow semantic version
 
 ## 3.0.0-dev.5 - 2026-08-30
 
-- Development checkpoint for accurate draining-route accounting and long-session coverage.
+- Turning a link off now keeps its existing sessions visible as draining, continues byte-accurate accounting until they finish, and still prevents new connections from using that link.
+- Added a 120-connection soak test that proves exact connection accounting and complete client-task cleanup after concurrent traffic.
 
 ## 3.0.0-dev.4 - 2026-08-30
 

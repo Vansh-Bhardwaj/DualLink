@@ -1,6 +1,7 @@
 using DualLink;
 using System.Net;
 using System.Net.Sockets;
+using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
 
@@ -9,7 +10,7 @@ var credentials = new ProxyCredentials("duallink-test", "correct-horse-battery-s
 var server = new TcpListener(IPAddress.Any, 0);
 server.Start();
 var serverPort = ((IPEndPoint)server.LocalEndpoint).Port;
-using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
 
 var serverTask = Task.Run(async () =>
 {
@@ -52,9 +53,15 @@ server.Stop();
 
 if (sources.TakeLast(2).Any(x => x != "127.0.0.2"))
     throw new Exception("Zero-weight route still received new connections: " + string.Join(", ", sources));
+var retainedFirstRoute = proxy.RouteStatuses.Single(x => x.Address == "127.0.0.1");
+var enabledSecondRoute = proxy.RouteStatuses.Single(x => x.Address == "127.0.0.2");
+if (retainedFirstRoute.AcceptingNewConnections || !enabledSecondRoute.AcceptingNewConnections ||
+    retainedFirstRoute.DownloadedBytes < measuredRoutes.Single(x => x.Address == "127.0.0.1").DownloadedBytes ||
+    retainedFirstRoute.UploadedBytes < measuredRoutes.Single(x => x.Address == "127.0.0.1").UploadedBytes)
+    throw new Exception("A zero-weight route lost its completed-session contribution evidence.");
 
 await proxy.StartAsync(new[] { ("127.0.0.1", 1), ("127.0.0.2", 1) });
-if (proxy.RouteStatuses.Any(x => x.DownloadedBytes != 0 || x.UploadedBytes != 0 || x.SuccessfulConnections != 0))
+if (proxy.RouteStatuses.Count != 2 || proxy.RouteStatuses.Any(x => !x.AcceptingNewConnections || x.DownloadedBytes != 0 || x.UploadedBytes != 0 || x.SuccessfulConnections != 0))
     throw new Exception("Per-boost traffic evidence was not reset for a new boost.");
 await proxy.StopAsync();
 
@@ -215,6 +222,88 @@ if (!matchers.Contains(@"C:\Apps\Test\test.exe") || !matchers.Contains("test.exe
     throw new Exception("Full executable path matching regressed.");
 Console.WriteLine("PASS: custom targets preserve full executable paths");
 
+var drainServer = new TcpListener(IPAddress.Any, 0);
+drainServer.Start();
+var drainServerPort = ((IPEndPoint)drainServer.LocalEndpoint).Port;
+var finishDrain = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+var drainServerTask = Task.Run(async () =>
+{
+    using var accepted = await drainServer.AcceptTcpClientAsync(cts.Token);
+    var stream = accepted.GetStream();
+    var request = new byte[1];
+    await stream.ReadExactlyAsync(request, cts.Token);
+    await stream.WriteAsync(Encoding.ASCII.GetBytes("before"), cts.Token);
+    await finishDrain.Task.WaitAsync(cts.Token);
+    await stream.WriteAsync(Encoding.ASCII.GetBytes("after"), cts.Token);
+}, cts.Token);
+await using (var drainProxy = new Socks5Balancer(0, _ => { }, credentials))
+{
+    await drainProxy.StartAsync(new[] { ("127.0.0.1", 1) });
+    using var tunnel = await OpenTunnelAsync(drainProxy.BoundPort, drainServerPort, cts.Token, credentials);
+    var tunnelStream = tunnel.GetStream();
+    await tunnelStream.WriteAsync(new byte[] { 1 }, cts.Token);
+    var before = new byte[6];
+    await tunnelStream.ReadExactlyAsync(before, cts.Token);
+    drainProxy.UpdateSources(new[] { ("127.0.0.1", 0), ("127.0.0.2", 1) });
+    var drainingRoute = drainProxy.RouteStatuses.Single(x => x.Address == "127.0.0.1");
+    if (drainingRoute.AcceptingNewConnections || drainingRoute.ActiveConnections != 1)
+        throw new Exception("The disabled route did not remain visible as one draining connection.");
+    finishDrain.SetResult();
+    var after = new byte[5];
+    await tunnelStream.ReadExactlyAsync(after, cts.Token);
+    if (Encoding.ASCII.GetString(before) != "before" || Encoding.ASCII.GetString(after) != "after")
+        throw new Exception("An established transfer was interrupted when its route was turned off.");
+    await drainServerTask;
+    await WaitForClientsToDrainAsync(drainProxy, cts.Token);
+    var drainedRoute = drainProxy.RouteStatuses.Single(x => x.Address == "127.0.0.1");
+    if (drainedRoute.ActiveConnections != 0 || drainedRoute.DownloadedBytes < 11)
+        throw new Exception("The drained route did not retain bytes transferred after it was turned off.");
+}
+drainServer.Stop();
+Console.WriteLine("PASS: zero-weight routes drain existing transfers and retain their traffic evidence");
+
+const int soakConnections = 120;
+var soakSources = new ConcurrentBag<string>();
+var soakServer = new TcpListener(IPAddress.Any, 0);
+soakServer.Start();
+var soakServerPort = ((IPEndPoint)soakServer.LocalEndpoint).Port;
+var soakServerTask = Task.Run(async () =>
+{
+    var handlers = new List<Task>(soakConnections);
+    for (var i = 0; i < soakConnections; i++)
+    {
+        var accepted = await soakServer.AcceptTcpClientAsync(cts.Token);
+        handlers.Add(Task.Run(async () =>
+        {
+            using (accepted)
+            {
+                soakSources.Add(((IPEndPoint)accepted.Client.RemoteEndPoint!).Address.ToString());
+                var stream = accepted.GetStream();
+                var buffer = new byte[256];
+                await stream.ReadAtLeastAsync(buffer, 1, cancellationToken: cts.Token);
+                await stream.WriteAsync(Encoding.ASCII.GetBytes("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"), cts.Token);
+            }
+        }, cts.Token));
+    }
+    await Task.WhenAll(handlers);
+}, cts.Token);
+await using (var soakProxy = new Socks5Balancer(0, _ => { }, credentials))
+{
+    await soakProxy.StartAsync(new[] { ("127.0.0.1", 1), ("127.0.0.2", 1) });
+    for (var offset = 0; offset < soakConnections; offset += 20)
+        await Task.WhenAll(Enumerable.Range(offset, Math.Min(20, soakConnections - offset))
+            .Select(_ => SendRequestAsync(soakProxy.BoundPort, soakServerPort, cts.Token, credentials)));
+    await soakServerTask;
+    await WaitForClientsToDrainAsync(soakProxy, cts.Token);
+    var soakStatuses = soakProxy.RouteStatuses;
+    if (soakStatuses.Count != 2 || soakStatuses.Any(x => x.SuccessfulConnections == 0) ||
+        soakStatuses.Sum(x => x.SuccessfulConnections) != soakConnections ||
+        soakProxy.ActiveConnections != 0 || soakProxy.PendingClientTasks != 0)
+        throw new Exception("Long-session connection accounting or client-task cleanup regressed.");
+}
+soakServer.Stop();
+Console.WriteLine($"PASS: {soakConnections}-connection soak leaves no active sessions or retained client tasks");
+
 var managerRoot = Path.Combine(Path.GetTempPath(), $"DualLink-manager-test-{Guid.NewGuid():N}");
 var managerState = Path.Combine(managerRoot, "state");
 var managerProgram = Path.Combine(managerRoot, "ProxiFyre");
@@ -290,6 +379,40 @@ finally
     if (Directory.Exists(managerRoot)) Directory.Delete(managerRoot, true);
 }
 Console.WriteLine("PASS: application targets update without restarting active proxy transfers");
+
+async Task<TcpClient> OpenTunnelAsync(int proxyPort, int targetPort, CancellationToken token, ProxyCredentials proxyCredentials)
+{
+    var client = new TcpClient();
+    try
+    {
+        await client.ConnectAsync(IPAddress.Loopback, proxyPort, token);
+        var stream = client.GetStream();
+        await stream.WriteAsync(new byte[] { 5, 1, 2 }, token);
+        var methodReply = new byte[2];
+        await stream.ReadExactlyAsync(methodReply, token);
+        if (methodReply[1] != 2) throw new Exception("SOCKS method negotiation failed");
+        await WriteCredentialsAsync(stream, proxyCredentials, token);
+        var authReply = new byte[2];
+        await stream.ReadExactlyAsync(authReply, token);
+        if (authReply[1] != 0) throw new Exception("SOCKS authentication failed");
+        await stream.WriteAsync(new byte[] { 5, 1, 0, 1, 127, 0, 0, 1, (byte)(targetPort >> 8), (byte)targetPort }, token);
+        var connectReply = new byte[10];
+        await stream.ReadExactlyAsync(connectReply, token);
+        if (connectReply[1] != 0) throw new Exception("SOCKS CONNECT failed");
+        return client;
+    }
+    catch
+    {
+        client.Dispose();
+        throw;
+    }
+}
+
+async Task WaitForClientsToDrainAsync(Socks5Balancer balancer, CancellationToken token)
+{
+    while (balancer.ActiveConnections != 0 || balancer.PendingClientTasks != 0)
+        await Task.Delay(10, token);
+}
 
 async Task SendRequestAsync(int proxyPort, int targetPort, CancellationToken token, ProxyCredentials proxyCredentials)
 {
