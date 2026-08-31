@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using System.Security.AccessControl;
+using System.Security.Principal;
 
 namespace DualLink;
 
@@ -17,10 +19,12 @@ public sealed class ProxiFyreManager
     private readonly Func<string, string, bool, Task<ProcessResult>> _processRunner;
     private readonly string _sessionPath;
     private readonly string _backupPath;
+    private readonly string _sessionLockPath;
+    private FileStream? _sessionLock;
 
     public ProxiFyreManager(Action<string> log) : this(
         log,
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DualLink"),
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "DualLink", "Recovery"),
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), ProxiDirectoryName),
         RunProcessAsync)
     {
@@ -38,7 +42,7 @@ public sealed class ProxiFyreManager
         _processRunner = processRunner;
         _sessionPath = Path.Combine(_stateDirectory, "active-session.json");
         _backupPath = Path.Combine(_stateDirectory, "proxifyre-config.backup");
-        Directory.CreateDirectory(_stateDirectory);
+        _sessionLockPath = Path.Combine(_stateDirectory, "filter-session.lock");
     }
 
     public string SessionPath => _sessionPath;
@@ -54,17 +58,32 @@ public sealed class ProxiFyreManager
         return (true, "Driver and application filter are ready");
     }
 
-    public async Task StartAsync(IReadOnlyCollection<string> processMatchers, int socksPort, ProxyCredentials credentials)
+    public async Task StartAsync(
+        IReadOnlyCollection<string> processMatchers,
+        int socksPort,
+        ProxyCredentials credentials,
+        Func<bool>? recoveryReady = null)
     {
-        if (File.Exists(_sessionPath)) await RestoreAsync();
+        PrepareStateDirectory();
+        AcquireSessionLock();
+        if (File.Exists(_sessionPath))
+        {
+            await RestoreAsync();
+            AcquireSessionLock();
+        }
         var prerequisite = await CheckPrerequisitesAsync();
         if (!prerequisite.Installed) throw new InvalidOperationException(prerequisite.Message);
 
         var serviceWasRunning = await IsServiceRunningAsync();
-        if (serviceWasRunning) await StopServiceAsync();
 
         var configExisted = File.Exists(ConfigPath);
-        if (configExisted) File.Copy(ConfigPath, _backupPath, true);
+        var configSecuritySddl = configExisted ? TryGetAccessSddl(ConfigPath) : null;
+        if (configExisted)
+        {
+            File.Delete(_backupPath);
+            File.Copy(ConfigPath, _backupPath);
+            if (IsAdministrator()) RestrictToAdministrators(_backupPath);
+        }
         else File.Delete(_backupPath);
 
         var state = new BoostSessionState
@@ -72,14 +91,15 @@ public sealed class ProxiFyreManager
             ConfigExisted = configExisted,
             ServiceWasRunning = serviceWasRunning,
             ConfigPath = ConfigPath,
-            BackupPath = _backupPath
+            BackupPath = _backupPath,
+            ConfigSecuritySddl = configSecuritySddl
         };
-        await WriteTextAtomicallyAsync(_sessionPath, JsonSerializer.Serialize(state));
+        await WriteTextAtomicallyAsync(_sessionPath, JsonSerializer.Serialize(state), restrictToAdministrators: true);
+        if (recoveryReady is not null && !recoveryReady())
+            throw new InvalidOperationException("The independent recovery watchdog could not be started.");
 
-        await WriteTextAtomicallyAsync(ConfigPath, BuildConfigJson(processMatchers, socksPort, credentials));
-
-        // Remove the one-off route used while DualLink was being developed.
-        await _processRunner("route.exe", "delete 199.232.209.133", false);
+        if (serviceWasRunning) await StopServiceAsync();
+        await WriteTextAtomicallyAsync(ConfigPath, BuildConfigJson(processMatchers, socksPort, credentials), restrictToAdministrators: true);
         await StartServiceAsync();
         _log($"Filtering {processMatchers.Count} application matchers");
     }
@@ -98,7 +118,7 @@ public sealed class ProxiFyreManager
             throw new InvalidOperationException("The active application-filter configuration is missing.");
 
         var previousConfig = await File.ReadAllTextAsync(ConfigPath);
-        await WriteTextAtomicallyAsync(ConfigPath, BuildConfigJson(processMatchers, socksPort, credentials));
+        await WriteTextAtomicallyAsync(ConfigPath, BuildConfigJson(processMatchers, socksPort, credentials), restrictToAdministrators: true);
         try
         {
             await StopServiceAsync();
@@ -108,7 +128,7 @@ public sealed class ProxiFyreManager
         }
         catch
         {
-            await WriteTextAtomicallyAsync(ConfigPath, previousConfig);
+            await WriteTextAtomicallyAsync(ConfigPath, previousConfig, restrictToAdministrators: true);
             try { await StartServiceAsync(); }
             catch { }
             throw;
@@ -118,38 +138,49 @@ public sealed class ProxiFyreManager
 
     public async Task RestoreAsync()
     {
+        PrepareStateDirectory();
+        AcquireSessionLock();
         if (!File.Exists(_sessionPath))
         {
+            ReleaseSessionLock();
             return;
         }
 
-        BoostSessionState? state = null;
-        try { state = JsonSerializer.Deserialize<BoostSessionState>(await File.ReadAllTextAsync(_sessionPath)); }
-        catch { }
-
-        if (state is not null && !IsExpectedState(state))
+        BoostSessionState state;
+        try
         {
-            File.Delete(_sessionPath);
-            throw new InvalidOperationException("The recovery state was invalid and has been discarded.");
+            state = JsonSerializer.Deserialize<BoostSessionState>(await File.ReadAllTextAsync(_sessionPath))
+                ?? throw new InvalidDataException("The recovery state was empty.");
         }
+        catch (Exception exception) when (exception is JsonException or IOException or InvalidDataException)
+        {
+            throw new InvalidDataException(
+                "The protected recovery state could not be read. It was preserved for manual recovery.",
+                exception);
+        }
+
+        if (!IsExpectedState(state))
+            throw new InvalidDataException("The protected recovery state has unexpected paths. It was preserved for manual recovery.");
+        if (state.ConfigExisted && !File.Exists(state.BackupPath))
+            throw new InvalidDataException("The original filter configuration backup is missing. Recovery state was preserved.");
 
         await StopServiceAsync(ignoreErrors: true);
-        if (state is not null)
+        if (state.ConfigExisted)
         {
-            if (state.ConfigExisted && File.Exists(state.BackupPath)) File.Copy(state.BackupPath, state.ConfigPath, true);
-            else if (!state.ConfigExisted && File.Exists(state.ConfigPath)) File.Delete(state.ConfigPath);
-            if (state.ServiceWasRunning) await StartServiceAsync();
+            File.Copy(state.BackupPath, state.ConfigPath, true);
+            RestoreAccessSddl(state.ConfigPath, state.ConfigSecuritySddl);
         }
+        else if (File.Exists(state.ConfigPath)) File.Delete(state.ConfigPath);
+        if (state.ServiceWasRunning) await StartServiceAsync();
         File.Delete(_backupPath);
         File.Delete(_sessionPath);
-        await _processRunner("route.exe", "delete 199.232.209.133", false);
+        ReleaseSessionLock();
         _log("Application filtering restored to its previous state");
     }
 
     public async Task<bool> IsServiceRunningAsync()
     {
-        var result = await RunScAsync("query", ServiceName, false);
-        return result.Output.Contains("RUNNING", StringComparison.OrdinalIgnoreCase);
+        return await QueryServiceRunningStateAsync() == true;
     }
 
     public async Task EnsureServiceRunningAsync()
@@ -166,7 +197,8 @@ public sealed class ProxiFyreManager
         var result = await RunScAsync("start", ServiceName, false);
         if (result.ExitCode != 0 && !result.Output.Contains("1056"))
             throw new InvalidOperationException($"Could not start ProxiFyre: {result.Output.Trim()}");
-        await Task.Delay(500);
+        if (!await WaitForServiceStateAsync(running: true, TimeSpan.FromSeconds(6)))
+            throw new InvalidOperationException("ProxiFyre did not reach the running state.");
     }
 
     private async Task StopServiceAsync(bool ignoreErrors = false)
@@ -174,11 +206,33 @@ public sealed class ProxiFyreManager
         var result = await RunScAsync("stop", ServiceName, false);
         if (!ignoreErrors && result.ExitCode != 0 && !result.Output.Contains("1062") && !result.Output.Contains("1060"))
             throw new InvalidOperationException($"Could not stop ProxiFyre: {result.Output.Trim()}");
-        await Task.Delay(350);
+        if (!await WaitForServiceStateAsync(running: false, TimeSpan.FromSeconds(6)))
+            throw new InvalidOperationException("ProxiFyre did not stop; its configuration was left unchanged.");
     }
 
     private Task<ProcessResult> RunScAsync(string verb, string service, bool throwOnError) =>
-        _processRunner("sc.exe", $"{verb} {service}", throwOnError);
+        _processRunner(GetSystemToolPath("sc.exe"), $"{verb} {service}", throwOnError);
+
+    private async Task<bool> WaitForServiceStateAsync(bool running, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        do
+        {
+            var current = await QueryServiceRunningStateAsync();
+            if (current.HasValue && current.Value == running) return true;
+            await Task.Delay(200);
+        } while (DateTime.UtcNow < deadline);
+        return false;
+    }
+
+    private async Task<bool?> QueryServiceRunningStateAsync()
+    {
+        var result = await RunScAsync("query", ServiceName, false);
+        if (result.Output.Contains("RUNNING", StringComparison.OrdinalIgnoreCase)) return true;
+        if (result.Output.Contains("STOPPED", StringComparison.OrdinalIgnoreCase) ||
+            result.Output.Contains("1060", StringComparison.Ordinal)) return false;
+        return null;
+    }
 
     internal static string BuildConfigJson(IReadOnlyCollection<string> processMatchers, int socksPort, ProxyCredentials credentials)
     {
@@ -205,11 +259,140 @@ public sealed class ProxiFyreManager
         return JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
     }
 
-    private static async Task WriteTextAtomicallyAsync(string path, string content)
+    private static async Task WriteTextAtomicallyAsync(string path, string content, bool restrictToAdministrators = false)
     {
-        var temporaryPath = path + ".duallink.tmp";
-        await File.WriteAllTextAsync(temporaryPath, content, new UTF8Encoding(false));
-        File.Move(temporaryPath, path, true);
+        var temporaryPath = $"{path}.{Guid.NewGuid():N}.tmp";
+        try
+        {
+            await using (var stream = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 16 * 1024, true))
+            {
+                var bytes = new UTF8Encoding(false).GetBytes(content);
+                await stream.WriteAsync(bytes);
+                await stream.FlushAsync();
+            }
+            if (restrictToAdministrators && IsAdministrator()) RestrictToAdministrators(temporaryPath);
+            File.Move(temporaryPath, path, true);
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
+        }
+    }
+
+    private static string? TryGetAccessSddl(string path)
+    {
+        try
+        {
+            return new FileInfo(path).GetAccessControl(AccessControlSections.Access)
+                .GetSecurityDescriptorSddlForm(AccessControlSections.Access);
+        }
+        catch { return null; }
+    }
+
+    private static void RestoreAccessSddl(string path, string? sddl)
+    {
+        if (string.IsNullOrWhiteSpace(sddl)) return;
+        var security = new FileSecurity();
+        security.SetSecurityDescriptorSddlForm(sddl, AccessControlSections.Access);
+        new FileInfo(path).SetAccessControl(security);
+    }
+
+    private static void RestrictToAdministrators(string path)
+    {
+        var security = new FileSecurity();
+        security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+        security.AddAccessRule(new FileSystemAccessRule(
+            new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
+            FileSystemRights.FullControl,
+            AccessControlType.Allow));
+        security.AddAccessRule(new FileSystemAccessRule(
+            new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null),
+            FileSystemRights.FullControl,
+            AccessControlType.Allow));
+        new FileInfo(path).SetAccessControl(security);
+    }
+
+    private void PrepareStateDirectory()
+    {
+        var existed = Directory.Exists(_stateDirectory);
+        Directory.CreateDirectory(_stateDirectory);
+        if (!IsAdministrator()) return;
+
+        var directory = new DirectoryInfo(_stateDirectory);
+        if ((directory.Attributes & FileAttributes.ReparsePoint) != 0)
+            throw new InvalidOperationException("The protected recovery folder cannot be a redirected path.");
+
+        var trusted = existed && IsTrustedPrivilegedDirectory(directory);
+        if (!trusted)
+        {
+            // Never consume or erase recovery evidence from a location that
+            // was writable by an ordinary user.
+            if (File.Exists(_sessionPath) || File.Exists(_backupPath))
+                throw new InvalidDataException(
+                    "The recovery folder was not protected. Existing recovery files were preserved and no filter change was made.");
+            File.Delete(_sessionLockPath);
+        }
+
+        var system = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
+        var administrators = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+        var security = new DirectorySecurity();
+        security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+        security.SetOwner(administrators);
+        const InheritanceFlags inheritance = InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit;
+        security.AddAccessRule(new FileSystemAccessRule(system, FileSystemRights.FullControl, inheritance, PropagationFlags.None, AccessControlType.Allow));
+        security.AddAccessRule(new FileSystemAccessRule(administrators, FileSystemRights.FullControl, inheritance, PropagationFlags.None, AccessControlType.Allow));
+        directory.SetAccessControl(security);
+
+        if (File.Exists(_sessionPath)) RestrictToAdministrators(_sessionPath);
+        if (File.Exists(_backupPath)) RestrictToAdministrators(_backupPath);
+    }
+
+    private void AcquireSessionLock()
+    {
+        if (_sessionLock is not null) return;
+        try
+        {
+            _sessionLock = new FileStream(_sessionLockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        }
+        catch (IOException exception)
+        {
+            throw new InvalidOperationException("Another DualLink network helper is already controlling the local filter.", exception);
+        }
+    }
+
+    private void ReleaseSessionLock()
+    {
+        _sessionLock?.Dispose();
+        _sessionLock = null;
+    }
+
+    private static bool IsTrustedPrivilegedDirectory(DirectoryInfo directory)
+    {
+        try
+        {
+            var security = directory.GetAccessControl(AccessControlSections.Access | AccessControlSections.Owner);
+            if (!security.AreAccessRulesProtected) return false;
+            var system = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
+            var administrators = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+            if (security.GetOwner(typeof(SecurityIdentifier)) is not SecurityIdentifier owner ||
+                (!owner.Equals(system) && !owner.Equals(administrators))) return false;
+
+            return security.GetAccessRules(includeExplicit: true, includeInherited: true, typeof(SecurityIdentifier))
+                .OfType<FileSystemAccessRule>()
+                .Where(static rule => rule.AccessControlType == AccessControlType.Allow)
+                .All(rule => rule.IdentityReference.Equals(system) || rule.IdentityReference.Equals(administrators));
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool IsAdministrator()
+    {
+        if (!OperatingSystem.IsWindows()) return false;
+        using var identity = WindowsIdentity.GetCurrent();
+        return new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
     }
 
     private bool IsExpectedState(BoostSessionState state)
@@ -239,10 +422,29 @@ public sealed class ProxiFyreManager
         process.Start();
         var stdout = process.StandardOutput.ReadToEndAsync();
         var stderr = process.StandardError.ReadToEndAsync();
-        await process.WaitForExitAsync();
+        try
+        {
+            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(15));
+        }
+        catch (TimeoutException)
+        {
+            try
+            {
+                if (!process.HasExited) process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(2));
+            }
+            catch { }
+            throw new TimeoutException($"Windows did not finish '{fileName}' within 15 seconds.");
+        }
         var output = (await stdout) + (await stderr);
         if (throwOnError && process.ExitCode != 0) throw new InvalidOperationException(output);
         return new ProcessResult(process.ExitCode, output);
+    }
+
+    private static string GetSystemToolPath(string fileName)
+    {
+        var systemDirectory = Environment.SystemDirectory;
+        return string.IsNullOrWhiteSpace(systemDirectory) ? fileName : Path.Combine(systemDirectory, fileName);
     }
 }
 

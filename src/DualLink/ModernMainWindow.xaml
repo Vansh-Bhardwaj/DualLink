@@ -4,7 +4,9 @@
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         Title="DualLink" Width="1080" Height="700" MinWidth="940" MinHeight="620"
         Background="{StaticResource CanvasBrush}" Foreground="{StaticResource TextBrush}"
-        FontFamily="{StaticResource AppFont}"
+         FontFamily="{StaticResource AppFont}" UseLayoutRounding="True" SnapsToDevicePixels="True"
+         TextOptions.TextFormattingMode="Ideal" TextOptions.TextRenderingMode="ClearType"
+         AutomationProperties.Name="DualLink network connections"
         WindowStyle="None" ResizeMode="CanResize" WindowStartupLocation="CenterScreen">
   <shell:WindowChrome.WindowChrome>
     <shell:WindowChrome CaptionHeight="0" ResizeBorderThickness="6" CornerRadius="12" GlassFrameThickness="0" />
@@ -14,7 +16,7 @@
     <DataTemplate x:Key="LinkOptionTemplate">
       <StackPanel Margin="1,1">
         <TextBlock Text="{Binding DisplayName}" FontWeight="Medium" TextTrimming="CharacterEllipsis" />
-        <TextBlock Text="{Binding DetailText}" Foreground="{StaticResource TertiaryBrush}" FontSize="10.5"
+        <TextBlock Text="{Binding DetailText}" Foreground="{StaticResource TertiaryBrush}" FontSize="12"
                    Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
       </StackPanel>
     </DataTemplate>
@@ -28,8 +30,9 @@
       </Grid.RowDefinitions>
 
       <!-- Compact, draggable title bar -->
-      <Border Grid.Row="0" Background="{StaticResource CanvasBrush}" CornerRadius="12,12,0,0"
-              BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,0,0,1"
+       <Border Grid.Row="0" Background="{StaticResource CanvasBrush}" CornerRadius="12,12,0,0"
+               BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,0,0,1"
+               AutomationProperties.Name="Window title bar"
               MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
         <Grid>
           <Grid.ColumnDefinitions>
@@ -52,22 +55,26 @@
             <Border Background="{StaticResource RaisedBrush}" CornerRadius="12" Padding="10,5" Margin="0,0,5,0">
               <StackPanel Orientation="Horizontal">
                 <Ellipse Width="6" Height="6" Fill="{Binding StatusColor}" Margin="0,0,6,0" />
-                <TextBlock Text="{Binding StatusText}" FontSize="10" FontWeight="SemiBold" VerticalAlignment="Center" />
+                 <TextBlock Text="{Binding StatusText}" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" />
               </StackPanel>
             </Border>
-            <Button Style="{StaticResource IconButton}" ToolTip="Connection details" Click="Details_Click">
+             <Button Style="{StaticResource IconButton}" ToolTip="Connection details" AutomationProperties.Name="Connection details"
+                     AutomationProperties.HelpText="Open connection health and activity" Click="Details_Click">
               <Path Data="M 9,2 A 7,7 0 1 0 9,16 A 7,7 0 1 0 9,2 M 9,8 L 9,13 M 9,5 L 9,6"
                     Stroke="{StaticResource SecondaryBrush}" StrokeThickness="1.5" StrokeStartLineCap="Round" />
             </Button>
-            <Button Style="{StaticResource IconButton}" ToolTip="Settings" Click="Settings_Click">
+             <Button Style="{StaticResource IconButton}" ToolTip="Settings" AutomationProperties.Name="Settings"
+                     AutomationProperties.HelpText="Open app behavior and update settings" Click="Settings_Click">
               <Path Data="M 9,2 L 10,4.1 L 12.3,4.5 L 14,3 L 16,6.4 L 13.9,7.5 L 14,10 L 16,11.4 L 14,15 L 11.8,13.8 L 9.8,15 L 9,17 L 5,17 L 4.2,14.8 L 2.1,13.7 L 0,15 L -2,11.5 L 0,10.2 L 0.1,7.7 L -2,6.5 L 0,3 L 2.1,4.2 L 4.2,3.1 L 5,1 Z M 7,7 A 2,2 0 1 0 7,11 A 2,2 0 1 0 7,7"
                     Stroke="{StaticResource SecondaryBrush}" StrokeThickness="1.2" Fill="Transparent" Stretch="Uniform" Width="17" Height="17" />
             </Button>
           </StackPanel>
 
           <StackPanel Grid.Column="2" Orientation="Horizontal" shell:WindowChrome.IsHitTestVisibleInChrome="True">
-            <Button Style="{StaticResource TitleBarButton}" Content="—" FontSize="14" ToolTip="Minimize to tray" Click="Minimize_Click" />
-            <Button Style="{StaticResource TitleBarButton}" Content="×" FontSize="17" ToolTip="Close" Click="Close_Click" />
+             <Button Style="{StaticResource TitleBarButton}" Content="—" FontSize="14" ToolTip="Minimize to tray"
+                     AutomationProperties.Name="Minimize to tray" Click="Minimize_Click" />
+             <Button Style="{StaticResource TitleBarButton}" Content="×" FontSize="17" ToolTip="Close"
+                     AutomationProperties.Name="Close DualLink" Click="Close_Click" />
           </StackPanel>
         </Grid>
       </Border>
@@ -84,15 +91,15 @@
           <Grid Margin="22,22,20,20">
             <Grid.RowDefinitions>
               <RowDefinition Height="Auto" />
-              <RowDefinition Height="22" />
+               <RowDefinition Height="12" />
               <RowDefinition Height="Auto" />
               <RowDefinition Height="1" />
               <RowDefinition Height="Auto" />
               <RowDefinition Height="1" />
-              <RowDefinition Height="Auto" />
-              <RowDefinition Height="16" />
-              <RowDefinition Height="Auto" />
-              <RowDefinition Height="14" />
+               <RowDefinition Height="Auto" />
+               <RowDefinition Height="12" />
+               <RowDefinition Height="Auto" />
+               <RowDefinition Height="8" />
               <RowDefinition Height="Auto" />
               <RowDefinition Height="*" />
               <RowDefinition Height="Auto" />
@@ -101,26 +108,28 @@
             <Grid>
               <StackPanel>
                 <TextBlock Text="Connections" Style="{StaticResource SectionTitle}" />
-                <TextBlock Text="{Binding TrafficScopeText}" Style="{StaticResource CaptionText}" Margin="0,4,0,0" />
+               <TextBlock Text="{Binding TrafficScopeText}" Style="{StaticResource CaptionText}" Margin="0,4,0,0"
+                          TextWrapping="Wrap" TextTrimming="CharacterEllipsis" />
                 <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
                   <TextBlock Text="↓" Foreground="{StaticResource WifiBrush}" FontSize="17" Margin="0,6,7,0" />
                   <TextBlock Text="{Binding CombinedSpeedText}" Style="{StaticResource MetricText}" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="1,2,0,0">
-                  <TextBlock Text="Upload" Foreground="{StaticResource TertiaryBrush}" FontSize="10.5" />
-                  <TextBlock Text="{Binding CombinedUploadSpeedText}" Foreground="{StaticResource SecondaryBrush}" FontSize="10.5" FontWeight="Medium" Margin="6,0,0,0" />
+                  <TextBlock Text="Upload" Foreground="{StaticResource TertiaryBrush}" FontSize="12" />
+                  <TextBlock Text="{Binding CombinedUploadSpeedText}" Foreground="{StaticResource SecondaryBrush}" FontSize="12" FontWeight="Medium" Margin="6,0,0,0" />
                 </StackPanel>
-                <Grid Width="232" Height="32" Margin="0,9,0,0" HorizontalAlignment="Left" ClipToBounds="True"
+                <Grid Width="232" Height="28" Margin="0,7,0,0" HorizontalAlignment="Left" ClipToBounds="True"
                       ToolTip="{Binding TrafficHistoryToolTip}">
-                  <Line X1="0" Y1="30" X2="232" Y2="30" Stroke="{StaticResource DividerBrush}" StrokeThickness="1" />
+                  <Line X1="0" Y1="26" X2="232" Y2="26" Stroke="{StaticResource DividerBrush}" StrokeThickness="1" />
                   <Polyline Points="{Binding EthernetGraphPoints}" Stroke="{StaticResource EthernetBrush}" StrokeThickness="1.5"
                             StrokeLineJoin="Round" SnapsToDevicePixels="True" />
                   <Polyline Points="{Binding WifiGraphPoints}" Stroke="{StaticResource WifiBrush}" StrokeThickness="1.5"
                             StrokeLineJoin="Round" SnapsToDevicePixels="True" />
                 </Grid>
               </StackPanel>
-              <Button HorizontalAlignment="Right" VerticalAlignment="Top" Style="{StaticResource IconButton}"
-                      ToolTip="Refresh network adapters" Click="RefreshAdapters_Click">
+               <Button HorizontalAlignment="Right" VerticalAlignment="Top" Style="{StaticResource IconButton}"
+                       ToolTip="Refresh network adapters" AutomationProperties.Name="Refresh network adapters"
+                       AutomationProperties.HelpText="Recheck available Ethernet and Wi-Fi connections" Click="RefreshAdapters_Click">
                 <Path Data="M 14,6 A 6,6 0 1 0 15,11 M 14,3 L 14,7 L 10,7"
                       Stroke="{StaticResource SecondaryBrush}" StrokeThickness="1.5" Fill="Transparent"
                       StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
@@ -128,77 +137,88 @@
             </Grid>
 
             <!-- Ethernet route -->
-            <Grid Grid.Row="2" Margin="0,0,0,15">
+             <Grid Grid.Row="2" Margin="0,0,0,10">
               <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
               <Grid>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                   <Ellipse Width="7" Height="7" Fill="{StaticResource EthernetBrush}" />
                   <TextBlock Text="Ethernet" FontWeight="Medium" Margin="8,0,0,0" />
                 </StackPanel>
-                <TextBlock Text="{Binding SelectedEthernet.SpeedText}" HorizontalAlignment="Right" Foreground="{StaticResource SecondaryBrush}" FontSize="10.5" />
+                 <TextBlock Text="{Binding SelectedEthernet.SpeedText}" HorizontalAlignment="Right" Foreground="{StaticResource SecondaryBrush}" FontSize="12"
+                            TextTrimming="CharacterEllipsis" ToolTip="{Binding SelectedEthernet.SpeedText}" />
               </Grid>
-              <ComboBox Grid.Row="1" ItemsSource="{Binding EthernetLinks}" SelectedItem="{Binding SelectedEthernet}"
-                        ItemTemplate="{StaticResource LinkOptionTemplate}" Margin="15,8,0,0" Height="32" />
-              <Grid Grid.Row="2" Margin="15,9,0,0">
+               <ComboBox Grid.Row="1" ItemsSource="{Binding EthernetLinks}" SelectedItem="{Binding SelectedEthernet}"
+                         ItemTemplate="{StaticResource LinkOptionTemplate}" Margin="15,6,0,0" Height="34"
+                         AutomationProperties.Name="Ethernet connection" AutomationProperties.HelpText="Choose the Ethernet adapter used for new connections" />
+               <Grid Grid.Row="2" Margin="15,6,0,0">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition /><ColumnDefinition Width="112" /></Grid.ColumnDefinitions>
-                <Button Content="Only" Style="{StaticResource QuietButton}" HorizontalAlignment="Left" Padding="0,4" Margin="0,0,9,0"
-                        ToolTip="Route new target connections through Ethernet only" Click="EthernetOnly_Click" />
+                 <Button Content="Only" Style="{StaticResource QuietButton}" HorizontalAlignment="Left" Padding="0,4" Margin="0,0,9,0"
+                         ToolTip="Use Ethernet only" AutomationProperties.Name="Use Ethernet only"
+                         AutomationProperties.HelpText="Send new connections through Ethernet only" Click="EthernetOnly_Click" />
                 <ComboBox x:Name="EthernetRouteLimit" Grid.Column="2" ItemsSource="{Binding RouteSpeedOptions}"
                           SelectedValuePath="Mbps" DisplayMemberPath="DisplayName"
                           SelectedValue="{Binding SelectedEthernet.RouteControlMbps, Mode=TwoWay}"
-                          SelectionChanged="RouteLimit_SelectionChanged" Height="32"
-                          ToolTip="Ethernet speed · changes apply immediately" />
+                           SelectionChanged="RouteLimit_SelectionChanged" Height="34"
+                           ToolTip="Ethernet download limit · changes apply immediately" AutomationProperties.Name="Ethernet download limit"
+                           AutomationProperties.HelpText="Choose a maximum speed for new Ethernet traffic" />
               </Grid>
             </Grid>
 
             <Border Grid.Row="3" Background="{StaticResource DividerBrush}" />
 
             <!-- Wi-Fi route -->
-            <Grid Grid.Row="4" Margin="0,15,0,15">
+             <Grid Grid.Row="4" Margin="0,10,0,10">
               <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
               <Grid>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                   <Ellipse Width="7" Height="7" Fill="{StaticResource WifiBrush}" />
                   <TextBlock Text="Wi-Fi / hotspot" FontWeight="Medium" Margin="8,0,0,0" />
                 </StackPanel>
-                <TextBlock Text="{Binding SelectedWifi.SpeedText}" HorizontalAlignment="Right" Foreground="{StaticResource SecondaryBrush}" FontSize="10.5" />
+                 <TextBlock Text="{Binding SelectedWifi.SpeedText}" HorizontalAlignment="Right" Foreground="{StaticResource SecondaryBrush}" FontSize="12"
+                            TextTrimming="CharacterEllipsis" ToolTip="{Binding SelectedWifi.SpeedText}" />
               </Grid>
-              <Grid Grid.Row="1" Margin="15,8,0,0">
+               <Grid Grid.Row="1" Margin="15,6,0,0">
                 <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                <ComboBox x:Name="WifiAdapterPicker" ItemsSource="{Binding WifiLinks}" SelectedItem="{Binding SelectedWifi}"
-                          ItemTemplate="{StaticResource LinkOptionTemplate}" Height="32" />
-                <Button Grid.Column="1" Content="Networks" Style="{StaticResource QuietButton}" Margin="9,0,0,0"
-                        Padding="0,4" ToolTip="See and change nearby Wi-Fi networks" Click="WifiNetworks_Click" />
+                 <ComboBox x:Name="WifiAdapterPicker" ItemsSource="{Binding WifiLinks}" SelectedItem="{Binding SelectedWifi}"
+                           ItemTemplate="{StaticResource LinkOptionTemplate}" Height="34"
+                           AutomationProperties.Name="Wi-Fi connection" AutomationProperties.HelpText="Choose the Wi-Fi adapter used for new connections" />
+                 <Button Grid.Column="1" Content="Networks" Style="{StaticResource QuietButton}" Margin="9,0,0,0"
+                         Padding="0,4" ToolTip="See and change nearby Wi-Fi networks" AutomationProperties.Name="Wi-Fi networks"
+                         AutomationProperties.HelpText="Open the list of nearby Wi-Fi networks" Click="WifiNetworks_Click" />
               </Grid>
-              <Grid Grid.Row="2" Margin="15,9,0,0">
+               <Grid Grid.Row="2" Margin="15,6,0,0">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition /><ColumnDefinition Width="112" /></Grid.ColumnDefinitions>
-                <Button Content="Only" Style="{StaticResource QuietButton}" HorizontalAlignment="Left" Padding="0,4" Margin="0,0,9,0"
-                        ToolTip="Route new target connections through Wi-Fi only" Click="WifiOnly_Click" />
+                 <Button Content="Only" Style="{StaticResource QuietButton}" HorizontalAlignment="Left" Padding="0,4" Margin="0,0,9,0"
+                         ToolTip="Use Wi-Fi only" AutomationProperties.Name="Use Wi-Fi only"
+                         AutomationProperties.HelpText="Send new connections through Wi-Fi only" Click="WifiOnly_Click" />
                 <ComboBox x:Name="WifiRouteLimit" Grid.Column="2" ItemsSource="{Binding RouteSpeedOptions}"
                           SelectedValuePath="Mbps" DisplayMemberPath="DisplayName"
                           SelectedValue="{Binding SelectedWifi.RouteControlMbps, Mode=TwoWay}"
-                          SelectionChanged="RouteLimit_SelectionChanged" Height="32"
-                          ToolTip="Wi-Fi speed · changes apply immediately" />
+                           SelectionChanged="RouteLimit_SelectionChanged" Height="34"
+                           ToolTip="Wi-Fi download limit · changes apply immediately" AutomationProperties.Name="Wi-Fi download limit"
+                           AutomationProperties.HelpText="Choose a maximum speed for new Wi-Fi traffic" />
               </Grid>
             </Grid>
 
             <Border Grid.Row="5" Background="{StaticResource DividerBrush}" />
 
-            <Grid Grid.Row="6" Margin="0,14,0,0">
+             <Grid Grid.Row="6" Margin="0,10,0,0">
               <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
               <TextBlock Text="Automatic" FontWeight="Medium" VerticalAlignment="Center" />
-              <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding AutoBoost, Mode=TwoWay}"
-                        Click="AutoBoost_Click" VerticalAlignment="Center" />
+               <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding AutoBoost, Mode=TwoWay}"
+                         Click="AutoBoost_Click" VerticalAlignment="Center" AutomationProperties.Name="Automatic boost"
+                         AutomationProperties.HelpText="Boost selected apps while they are running" />
             </Grid>
 
-            <Grid Grid.Row="8">
+             <Grid Grid.Row="8">
               <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="112" /></Grid.ColumnDefinitions>
               <TextBlock Text="Mode" FontWeight="Medium" VerticalAlignment="Center" />
-              <ComboBox Grid.Column="1" ItemsSource="{Binding RoutingModeOptions}" SelectedItem="{Binding SelectedRoutingModeOption, Mode=TwoWay}"
-                        Height="32" VerticalAlignment="Center" />
+               <ComboBox Grid.Column="1" ItemsSource="{Binding RoutingModeOptions}" SelectedItem="{Binding SelectedRoutingModeOption, Mode=TwoWay}"
+                         Height="34" VerticalAlignment="Center" AutomationProperties.Name="Routing mode"
+                         AutomationProperties.HelpText="Choose how new connections are distributed" />
             </Grid>
 
-            <TextBlock Grid.Row="10" Text="{Binding CompatibilityGuardText}" Style="{StaticResource CaptionText}"
+             <TextBlock Grid.Row="10" Text="{Binding CompatibilityGuardText}" Style="{StaticResource CaptionText}"
                        TextWrapping="Wrap" />
           </Grid>
         </Border>
@@ -217,7 +237,9 @@
               <TextBlock Text="Applications" Style="{StaticResource SectionTitle}" />
               <TextBlock Text="Choose which apps use both connections" Style="{StaticResource CaptionText}" Margin="0,4,0,0" />
             </StackPanel>
-            <Button Content="Add application…" HorizontalAlignment="Right" VerticalAlignment="Center" Click="AddExecutable_Click" />
+             <Button Content="Add application…" HorizontalAlignment="Right" VerticalAlignment="Center"
+                     AutomationProperties.Name="Add application" AutomationProperties.HelpText="Choose an application to route"
+                     Click="AddExecutable_Click" />
           </Grid>
 
           <Border Grid.Row="2" Background="{StaticResource SidebarBrush}" BorderBrush="{StaticResource DividerBrush}"
@@ -240,14 +262,18 @@
                         </Grid.ColumnDefinitions>
                         <Ellipse Width="7" Height="7" Fill="{Binding Accent}" VerticalAlignment="Center" HorizontalAlignment="Left" />
                         <StackPanel Grid.Column="1">
-                          <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="Medium" />
-                          <TextBlock Text="{Binding Subtitle}" Style="{StaticResource CaptionText}" Margin="0,3,0,0" />
+                           <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="Medium" TextTrimming="CharacterEllipsis"
+                                      ToolTip="{Binding Name}" />
+                           <TextBlock Text="{Binding Subtitle}" Style="{StaticResource CaptionText}" Margin="0,3,0,0"
+                                      TextTrimming="CharacterEllipsis" ToolTip="{Binding Subtitle}" />
                         </StackPanel>
                          <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                           <Ellipse x:Name="RunDot" Width="6" Height="6" Fill="{StaticResource TertiaryBrush}" Margin="0,0,6,0" />
-                          <TextBlock Text="{Binding RunState}" Foreground="{StaticResource TertiaryBrush}" FontSize="10" />
+                           <TextBlock Text="{Binding RunState}" Foreground="{StaticResource TertiaryBrush}" FontSize="12"
+                                      TextTrimming="CharacterEllipsis" />
                          </StackPanel>
-                         <Button Grid.Column="4" Content="Remove" Click="RemoveProfile_Click" Padding="7,4" ToolTip="Remove this custom application">
+                          <Button Grid.Column="4" Content="Remove" Click="RemoveProfile_Click" Padding="7,4" ToolTip="Remove this custom application"
+                                  AutomationProperties.Name="{Binding Name}" AutomationProperties.HelpText="Remove this application from DualLink">
                            <Button.Style>
                              <Style TargetType="Button" BasedOn="{StaticResource QuietButton}">
                                <Setter Property="Visibility" Value="Collapsed" />
@@ -258,8 +284,10 @@
                              </Style>
                            </Button.Style>
                          </Button>
-                         <CheckBox Grid.Column="6" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding IsSelected, Mode=TwoWay}"
-                                   Click="ProfileSelection_Click" VerticalAlignment="Center" />
+                          <CheckBox Grid.Column="6" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                    Click="ProfileSelection_Click" VerticalAlignment="Center"
+                                    AutomationProperties.Name="{Binding Name}"
+                                    AutomationProperties.HelpText="Include this application in DualLink routing" />
                       </Grid>
                       <Border.Style>
                         <Style TargetType="Border">
@@ -292,8 +320,9 @@
               <TextBlock Text="·" Foreground="{StaticResource TertiaryBrush}" Margin="8,0" />
               <TextBlock Text="{Binding ActiveConnections, StringFormat={}{0} sessions}" Foreground="{StaticResource SecondaryBrush}" />
             </StackPanel>
-            <Button Grid.Column="1" x:Name="BoostButton" Content="Enable boost" MinWidth="132" Height="38"
-                    Style="{StaticResource PrimaryButton}" Click="BoostButton_Click" />
+             <Button Grid.Column="1" x:Name="BoostButton" Content="Enable boost" MinWidth="132" Height="38"
+                     Style="{StaticResource PrimaryButton}" AutomationProperties.Name="Enable boost"
+                     AutomationProperties.HelpText="Start routing selected applications across the chosen connections" Click="BoostButton_Click" />
           </Grid>
         </Grid>
 
@@ -309,22 +338,27 @@
             </Grid.RowDefinitions>
             <Grid>
               <StackPanel><TextBlock Text="Connection details" Style="{StaticResource SectionTitle}" /><TextBlock Text="Local diagnostics" Style="{StaticResource CaptionText}" Margin="0,4,0,0" /></StackPanel>
-              <Button Content="×" HorizontalAlignment="Right" VerticalAlignment="Top" Style="{StaticResource IconButton}" Click="CloseDrawer_Click" />
+              <Button Content="×" HorizontalAlignment="Right" VerticalAlignment="Top" Style="{StaticResource IconButton}"
+                      ToolTip="Close details" AutomationProperties.Name="Close connection details" Click="CloseDrawer_Click" />
             </Grid>
             <Grid Grid.Row="2">
               <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
               <TextBlock Text="Network filter" Foreground="{StaticResource SecondaryBrush}" />
-              <TextBlock Text="{Binding PrerequisiteText}" HorizontalAlignment="Right" FontWeight="SemiBold" />
+              <TextBlock Text="{Binding PrerequisiteText}" HorizontalAlignment="Right" FontWeight="SemiBold"
+                         TextTrimming="CharacterEllipsis" ToolTip="{Binding PrerequisiteText}" />
               <TextBlock Grid.Row="1" Text="Ethernet" Foreground="{StaticResource SecondaryBrush}" Margin="0,10,0,0" />
-              <TextBlock Grid.Row="1" Text="{Binding EthernetQualityText}" HorizontalAlignment="Right" FontSize="10" Margin="0,10,0,0"
+              <TextBlock Grid.Row="1" Text="{Binding EthernetQualityText}" HorizontalAlignment="Right" FontSize="12" Margin="0,10,0,0"
+                         TextTrimming="CharacterEllipsis"
                          ToolTip="{Binding SelectedEthernet.DiagnosticName}" />
               <TextBlock Grid.Row="2" Text="Wi-Fi" Foreground="{StaticResource SecondaryBrush}" Margin="0,10,0,0" />
-              <TextBlock Grid.Row="2" Text="{Binding WifiQualityText}" HorizontalAlignment="Right" FontSize="10" Margin="0,10,0,0"
+              <TextBlock Grid.Row="2" Text="{Binding WifiQualityText}" HorizontalAlignment="Right" FontSize="12" Margin="0,10,0,0"
+                         TextTrimming="CharacterEllipsis"
                          ToolTip="{Binding SelectedWifi.DiagnosticName}" />
               <TextBlock Grid.Row="3" Text="Recovery" Foreground="{StaticResource SecondaryBrush}" Margin="0,10,0,0" />
               <TextBlock Grid.Row="3" Text="Watching" HorizontalAlignment="Right" Foreground="{StaticResource SuccessBrush}" Margin="0,10,0,0" />
               <TextBlock Grid.Row="4" Text="Route health" Foreground="{StaticResource SecondaryBrush}" Margin="0,10,0,0" />
-              <TextBlock Grid.Row="4" Text="{Binding RouteHealthText}" HorizontalAlignment="Right" FontSize="10" Margin="0,10,0,0" />
+              <TextBlock Grid.Row="4" Text="{Binding RouteHealthText}" HorizontalAlignment="Right" FontSize="12" Margin="0,10,0,0"
+                         TextTrimming="CharacterEllipsis" ToolTip="{Binding RouteHealthText}" />
             </Grid>
             <Border Grid.Row="4" Background="{StaticResource CanvasBrush}" CornerRadius="8" Padding="14">
               <StackPanel>
@@ -376,9 +410,10 @@
             </Grid>
             <Grid Grid.Row="8">
               <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-              <Button Content="Check connections" Click="RunDiagnostics_Click" />
+              <Button Content="Check connections" AutomationProperties.Name="Check connections"
+                      AutomationProperties.HelpText="Test both selected connections" Click="RunDiagnostics_Click" />
               <Button Grid.Column="1" x:Name="ActivityToggleButton" Content="Activity" Style="{StaticResource QuietButton}"
-                      Margin="8,0,0,0" Click="Activity_Click" />
+                      Margin="8,0,0,0" AutomationProperties.Name="Show activity" Click="Activity_Click" />
             </Grid>
           </Grid>
         </Border>
@@ -394,7 +429,8 @@
             </Grid.RowDefinitions>
             <Grid>
               <StackPanel><TextBlock Text="Settings" Style="{StaticResource SectionTitle}" /><TextBlock Text="App behavior" Style="{StaticResource CaptionText}" Margin="0,4,0,0" /></StackPanel>
-              <Button Content="×" HorizontalAlignment="Right" VerticalAlignment="Top" Style="{StaticResource IconButton}" Click="CloseDrawer_Click" />
+              <Button Content="×" HorizontalAlignment="Right" VerticalAlignment="Top" Style="{StaticResource IconButton}"
+                      ToolTip="Close settings" AutomationProperties.Name="Close settings" Click="CloseDrawer_Click" />
             </Grid>
             <Grid Grid.Row="2">
               <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
@@ -402,7 +438,9 @@
                 <TextBlock Text="Keep running in the tray" FontWeight="SemiBold" />
                 <TextBlock Text="Closing the window keeps routing active." Style="{StaticResource CaptionText}" Margin="0,4,16,0" />
               </StackPanel>
-              <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding CloseToTray, Mode=TwoWay}" VerticalAlignment="Center" />
+              <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding CloseToTray, Mode=TwoWay}" VerticalAlignment="Center"
+                        AutomationProperties.Name="Keep running in the tray"
+                        AutomationProperties.HelpText="Keep routing active when this window is closed" />
             </Grid>
             <Grid Grid.Row="4">
               <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="8" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
@@ -413,10 +451,12 @@
                   <TextBlock Text="{Binding UpdateStatusText}" Style="{StaticResource CaptionText}" Margin="0,4,16,0" TextWrapping="Wrap" />
                 </StackPanel>
                 <ComboBox Grid.Column="1" ItemsSource="{Binding UpdateChannelOptions}" SelectedItem="{Binding SelectedUpdateChannelOption, Mode=TwoWay}"
-                          Height="32" VerticalAlignment="Top" />
+                          Height="34" VerticalAlignment="Top" AutomationProperties.Name="Update channel"
+                          AutomationProperties.HelpText="Choose which updates DualLink checks for" />
               </Grid>
-              <Button Grid.Row="2" x:Name="UpdateCheckButton" Content="{Binding UpdateActionText}" HorizontalAlignment="Left"
-                      Style="{StaticResource QuietButton}" Padding="0,5" Click="CheckUpdates_Click" />
+               <Button Grid.Row="2" x:Name="UpdateCheckButton" Content="{Binding UpdateActionText}" HorizontalAlignment="Left"
+                       Style="{StaticResource QuietButton}" Padding="0,5" AutomationProperties.Name="{Binding UpdateActionText}"
+                       Click="CheckUpdates_Click" />
             </Grid>
             <Border Grid.Row="6" BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Padding="0,16,0,0">
               <Grid><TextBlock Text="Build" Foreground="{StaticResource SecondaryBrush}" /><TextBlock Text="{Binding VersionText}" HorizontalAlignment="Right" /></Grid>
@@ -439,9 +479,11 @@
                 <TextBlock Text="Add application" Style="{StaticResource SectionTitle}" />
                 <TextBlock Text="Choose an app that is already open" Style="{StaticResource CaptionText}" Margin="0,4,0,0" />
               </StackPanel>
-              <Button Content="×" HorizontalAlignment="Right" VerticalAlignment="Top" Style="{StaticResource IconButton}" Click="CloseDrawer_Click" />
+              <Button Content="×" HorizontalAlignment="Right" VerticalAlignment="Top" Style="{StaticResource IconButton}"
+                      ToolTip="Close add application" AutomationProperties.Name="Close add application" Click="CloseDrawer_Click" />
             </Grid>
-            <TextBlock Grid.Row="2" Text="{Binding RunningApplicationsStatusText}" Foreground="{StaticResource SecondaryBrush}" />
+            <TextBlock Grid.Row="2" Text="{Binding RunningApplicationsStatusText}" Foreground="{StaticResource SecondaryBrush}"
+                       TextWrapping="Wrap" TextTrimming="CharacterEllipsis" />
             <Border Grid.Row="4" Background="{StaticResource CanvasBrush}" BorderBrush="{StaticResource DividerBrush}"
                     BorderThickness="1" CornerRadius="9" ClipToBounds="True">
               <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
@@ -451,10 +493,13 @@
                       <Grid Margin="15,12" ToolTip="{Binding ExecutablePath}">
                         <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                         <StackPanel>
-                          <TextBlock Text="{Binding DisplayName}" FontWeight="Medium" TextTrimming="CharacterEllipsis" />
-                          <TextBlock Text="{Binding Subtitle}" Style="{StaticResource CaptionText}" Margin="0,3,12,0" TextTrimming="CharacterEllipsis" />
+                          <TextBlock Text="{Binding DisplayName}" FontWeight="Medium" TextTrimming="CharacterEllipsis" ToolTip="{Binding DisplayName}" />
+                          <TextBlock Text="{Binding Subtitle}" Style="{StaticResource CaptionText}" Margin="0,3,12,0"
+                                     TextTrimming="CharacterEllipsis" ToolTip="{Binding Subtitle}" />
                         </StackPanel>
-                        <Button Grid.Column="1" Content="Add" VerticalAlignment="Center" Padding="12,6" Click="AddRunningApp_Click" />
+                        <Button Grid.Column="1" Content="Add" VerticalAlignment="Center" Padding="12,6"
+                                AutomationProperties.Name="{Binding DisplayName}" AutomationProperties.HelpText="Add this application to DualLink"
+                                Click="AddRunningApp_Click" />
                       </Grid>
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
@@ -464,7 +509,8 @@
             <Grid Grid.Row="6">
               <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
               <TextBlock Text="Not listed? Choose its executable file." Style="{StaticResource CaptionText}" VerticalAlignment="Center" />
-              <Button Grid.Column="1" Content="Browse…" Margin="14,0,0,0" Click="BrowseExecutable_Click" />
+              <Button Grid.Column="1" Content="Browse…" Margin="14,0,0,0" AutomationProperties.Name="Browse for executable"
+                      AutomationProperties.HelpText="Choose an application executable file" Click="BrowseExecutable_Click" />
             </Grid>
           </Grid>
         </Border>
@@ -482,12 +528,15 @@
                 <TextBlock Text="Wi-Fi networks" Style="{StaticResource SectionTitle}" />
                 <TextBlock Text="Saved networks connect here" Style="{StaticResource CaptionText}" Margin="0,4,0,0" />
               </StackPanel>
-              <Button Content="×" HorizontalAlignment="Right" VerticalAlignment="Top" Style="{StaticResource IconButton}" Click="CloseDrawer_Click" />
+              <Button Content="×" HorizontalAlignment="Right" VerticalAlignment="Top" Style="{StaticResource IconButton}"
+                      ToolTip="Close Wi-Fi networks" AutomationProperties.Name="Close Wi-Fi networks" Click="CloseDrawer_Click" />
             </Grid>
             <Grid Grid.Row="2">
               <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-              <TextBlock Text="{Binding WifiNetworksStatusText}" Foreground="{StaticResource SecondaryBrush}" VerticalAlignment="Center" />
-              <Button Grid.Column="1" Content="Refresh" Style="{StaticResource QuietButton}" Padding="0,4" Click="RefreshWifiNetworks_Click" />
+              <TextBlock Text="{Binding WifiNetworksStatusText}" Foreground="{StaticResource SecondaryBrush}" VerticalAlignment="Center"
+                         TextTrimming="CharacterEllipsis" ToolTip="{Binding WifiNetworksStatusText}" />
+              <Button Grid.Column="1" Content="Refresh" Style="{StaticResource QuietButton}" Padding="0,4"
+                      AutomationProperties.Name="Refresh Wi-Fi networks" Click="RefreshWifiNetworks_Click" />
             </Grid>
             <Border Grid.Row="4" Background="{StaticResource CanvasBrush}" BorderBrush="{StaticResource DividerBrush}"
                     BorderThickness="1" CornerRadius="9" ClipToBounds="True">
@@ -498,11 +547,13 @@
                       <Grid Margin="15,12">
                         <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                         <StackPanel>
-                          <TextBlock Text="{Binding Name}" FontWeight="Medium" TextTrimming="CharacterEllipsis" />
-                          <TextBlock Text="{Binding StatusText}" Style="{StaticResource CaptionText}" Margin="0,3,12,0" />
+                          <TextBlock Text="{Binding Name}" FontWeight="Medium" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}" />
+                          <TextBlock Text="{Binding StatusText}" Style="{StaticResource CaptionText}" Margin="0,3,12,0"
+                                     TextTrimming="CharacterEllipsis" ToolTip="{Binding StatusText}" />
                         </StackPanel>
                         <Button Grid.Column="1" Content="{Binding ActionText}" VerticalAlignment="Center" Padding="12,6"
-                                IsEnabled="{Binding CanSelect}"
+                                IsEnabled="{Binding CanSelect}" AutomationProperties.Name="{Binding ActionText}"
+                                AutomationProperties.HelpText="Change to this Wi-Fi network"
                                 Click="ConnectWifi_Click" />
                       </Grid>
                     </DataTemplate>
@@ -513,7 +564,8 @@
             <Grid Grid.Row="6">
               <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
               <TextBlock Text="New passwords stay with Windows." Style="{StaticResource CaptionText}" VerticalAlignment="Center" />
-              <Button Grid.Column="1" Content="Windows picker…" Margin="14,0,0,0" Click="OpenWindowsWifi_Click" />
+              <Button Grid.Column="1" Content="Windows picker…" Margin="14,0,0,0" AutomationProperties.Name="Open Windows Wi-Fi settings"
+                      AutomationProperties.HelpText="Use Windows to connect to a new Wi-Fi network" Click="OpenWindowsWifi_Click" />
             </Grid>
           </Grid>
         </Border>

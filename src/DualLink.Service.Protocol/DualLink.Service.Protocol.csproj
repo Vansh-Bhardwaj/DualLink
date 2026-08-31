@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <AssemblyName>DualLink.Service.Protocol</AssemblyName>
+    <RootNamespace>DualLink.Service.Protocol</RootNamespace>
+  </PropertyGroup>
+</Project>

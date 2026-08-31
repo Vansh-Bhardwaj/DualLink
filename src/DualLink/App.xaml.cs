@@ -25,6 +25,13 @@ public partial class App : System.Windows.Application
             base.OnStartup(e);
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
             var preview = new MainWindow(previewMode: true);
+            if (e.Args.Length >= 4 &&
+                double.TryParse(e.Args[2], out var snapshotWidth) &&
+                double.TryParse(e.Args[3], out var snapshotHeight))
+            {
+                preview.Width = Math.Max(preview.MinWidth, snapshotWidth);
+                preview.Height = Math.Max(preview.MinHeight, snapshotHeight);
+            }
             preview.Loaded += (_, _) => preview.Dispatcher.BeginInvoke(async () =>
             {
                 if (e.Args[0].Equals("--snapshot-settings", StringComparison.OrdinalIgnoreCase))

@@ -23,5 +23,7 @@ jobs:
         run: dotnet build src/DualLink/DualLink.csproj -c Release --no-restore
       - name: Build watchdog
         run: dotnet build src/DualLink.Watchdog/DualLink.Watchdog.csproj -c Release
+      - name: Build privileged service
+        run: dotnet build src/DualLink.Service/DualLink.Service.csproj -c Release
       - name: Run integration tests
         run: dotnet run --project tests/DualLink.Tests/DualLink.Tests.csproj -c Release

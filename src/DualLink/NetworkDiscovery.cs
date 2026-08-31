@@ -2,7 +2,6 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Diagnostics;
-using System.Text.RegularExpressions;
 
 namespace DualLink;
 
@@ -16,45 +15,61 @@ public static class NetworkDiscovery
     public static List<LinkInfo> FindInternetLinks()
     {
         var links = new List<LinkInfo>();
-        var wifiNetworks = FindConnectedWifiNetworks();
-        var interfaces = NetworkInterface.GetAllNetworkInterfaces();
+        NetworkInterface[] interfaces;
+        try { interfaces = NetworkInterface.GetAllNetworkInterfaces(); }
+        catch { return links; }
+        var wifiNetworks = interfaces.Any(x =>
+            x.OperationalStatus == OperationalStatus.Up &&
+            x.NetworkInterfaceType == NetworkInterfaceType.Wireless80211)
+            ? FindConnectedWifiNetworks()
+            : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         CacheRateInterfaces(interfaces);
         foreach (var nic in interfaces)
         {
-            if (nic.OperationalStatus != OperationalStatus.Up ||
-                nic.NetworkInterfaceType is NetworkInterfaceType.Loopback or NetworkInterfaceType.Tunnel)
-                continue;
-
-            var properties = nic.GetIPProperties();
-            var address = properties.UnicastAddresses
-                .FirstOrDefault(x => x.Address.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(x.Address));
-            var gateway = properties.GatewayAddresses
-                .FirstOrDefault(x => x.Address.AddressFamily == AddressFamily.InterNetwork && !x.Address.Equals(IPAddress.Any));
-            if (address is null || gateway is null) continue;
-
-            var kind = nic.NetworkInterfaceType == NetworkInterfaceType.Wireless80211 ? "Wi-Fi" :
-                nic.NetworkInterfaceType == NetworkInterfaceType.Ethernet ? "Ethernet" : "Other";
-            if (kind == "Other") continue;
-
-            var stats = nic.GetIPv4Statistics();
-            links.Add(new LinkInfo
+            try
             {
-                Id = nic.Id,
-                Name = nic.Name,
-                Description = nic.Description,
-                Address = address.Address.ToString(),
-                Gateway = gateway.Address.ToString(),
-                Kind = kind,
-                NetworkName = wifiNetworks.GetValueOrDefault(nic.Id.Trim('{', '}')),
-                LastReceivedBytes = stats.BytesReceived,
-                LastSentBytes = stats.BytesSent
-            });
+                if (nic.OperationalStatus != OperationalStatus.Up ||
+                    nic.NetworkInterfaceType is NetworkInterfaceType.Loopback or NetworkInterfaceType.Tunnel)
+                    continue;
+
+                var properties = nic.GetIPProperties();
+                var address = properties.UnicastAddresses
+                    .FirstOrDefault(x => x.Address.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(x.Address));
+                var gateway = properties.GatewayAddresses
+                    .FirstOrDefault(x => x.Address.AddressFamily == AddressFamily.InterNetwork && !x.Address.Equals(IPAddress.Any));
+                if (address is null || gateway is null) continue;
+
+                var kind = nic.NetworkInterfaceType == NetworkInterfaceType.Wireless80211 ? "Wi-Fi" :
+                    nic.NetworkInterfaceType == NetworkInterfaceType.Ethernet ? "Ethernet" : "Other";
+                if (kind == "Other") continue;
+
+                var stats = nic.GetIPv4Statistics();
+                links.Add(new LinkInfo
+                {
+                    Id = nic.Id,
+                    Name = nic.Name,
+                    Description = nic.Description,
+                    Address = address.Address.ToString(),
+                    Gateway = gateway.Address.ToString(),
+                    Kind = kind,
+                    NetworkName = wifiNetworks.GetValueOrDefault(nic.Id.Trim('{', '}')),
+                    LastReceivedBytes = stats.BytesReceived,
+                    LastSentBytes = stats.BytesSent
+                });
+            }
+            catch
+            {
+                // One disconnected or restricted adapter must not block the
+                // usable Ethernet/Wi-Fi entries from being shown.
+            }
         }
         return links;
     }
 
     public static void UpdateRates(IEnumerable<LinkInfo> links, double elapsedSeconds)
     {
+        ArgumentNullException.ThrowIfNull(links);
+        elapsedSeconds = Math.Max(0.001d, elapsedSeconds);
         var interfaces = GetRateInterfaces();
         foreach (var link in links)
         {
@@ -90,7 +105,9 @@ public static class NetworkDiscovery
 
     private static void CacheRateInterfacesCore(IEnumerable<NetworkInterface> interfaces)
     {
-        _rateInterfaces = interfaces.ToDictionary(x => x.Id, StringComparer.OrdinalIgnoreCase);
+        _rateInterfaces = interfaces
+            .GroupBy(x => x.Id, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(x => x.Key, x => x.First(), StringComparer.OrdinalIgnoreCase);
         _rateInterfacesExpireUtc = DateTime.UtcNow.AddSeconds(30);
     }
 
@@ -128,7 +145,7 @@ public static class NetworkDiscovery
         {
             return new ConnectionCheckResult(link.Kind, $"{link.DisplayName} did not reach the internet within 3 seconds.", DiagnosticState.Problem);
         }
-        catch (Exception ex) when (ex is SocketException or InvalidOperationException)
+        catch (Exception ex) when (ex is SocketException or InvalidOperationException or ArgumentException)
         {
             return new ConnectionCheckResult(link.Kind, $"{link.DisplayName} cannot currently reach the internet.", DiagnosticState.Problem);
         }
@@ -145,6 +162,10 @@ public static class NetworkDiscovery
                 ? new ConnectionCheckResult("Name lookup", "Web addresses are resolving normally.", DiagnosticState.Good)
                 : new ConnectionCheckResult("Name lookup", "No address was returned.", DiagnosticState.Problem);
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            throw;
+        }
         catch
         {
             return new ConnectionCheckResult("Name lookup", "DNS is not responding right now.", DiagnosticState.Problem);
@@ -153,36 +174,19 @@ public static class NetworkDiscovery
 
     private static Dictionary<string, string> FindConnectedWifiNetworks()
     {
-        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         try
         {
-            using var process = Process.Start(new ProcessStartInfo
-            {
-                FileName = "netsh.exe",
-                Arguments = "wlan show interfaces",
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                CreateNoWindow = true
-            });
-            if (process is null) return result;
-            var output = process.StandardOutput.ReadToEnd();
-            process.WaitForExit(2000);
-
-            string? currentId = null;
-            foreach (var line in output.Split('\n'))
-            {
-                var guidMatch = Regex.Match(line, @"^\s*GUID\s*:\s*(?<value>[{(]?[0-9a-f-]{36}[)}]?)\s*$", RegexOptions.IgnoreCase);
-                if (guidMatch.Success)
-                {
-                    currentId = guidMatch.Groups["value"].Value.Trim('{', '}', '(', ')');
-                    continue;
-                }
-                var ssidMatch = Regex.Match(line, @"^\s*SSID\s*:\s*(?<value>.+?)\s*$", RegexOptions.IgnoreCase);
-                if (currentId is not null && ssidMatch.Success)
-                    result[currentId] = ssidMatch.Groups["value"].Value;
-            }
+            // Read the WLAN cache directly instead of starting netsh on the UI
+            // refresh path. netsh can wait on WLAN AutoConfig and used to make
+            // adapter refreshes visibly stall for seconds.
+            return WifiManager.GetAvailableNetworks(refresh: false)
+                .Where(x => x.IsConnected && !string.IsNullOrWhiteSpace(x.Name))
+                .GroupBy(x => x.InterfaceId.ToString("D"), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(x => x.Key, x => x.First().Name, StringComparer.OrdinalIgnoreCase);
         }
-        catch { }
-        return result;
+        catch
+        {
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
     }
 }

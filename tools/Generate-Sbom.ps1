@@ -2,11 +2,31 @@
 param(
     [Parameter(Mandatory)] [string]$Version,
     [Parameter(Mandatory)] [string]$ApplicationPath,
+    [string[]]$AdditionalApplicationPath = @(),
     [Parameter(Mandatory)] [string]$OutputPath
 )
 
 $ErrorActionPreference = 'Stop'
 $applicationHash = (Get-FileHash -LiteralPath $ApplicationPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$additionalPackages = foreach ($componentPath in $AdditionalApplicationPath) {
+    if (-not (Test-Path -LiteralPath $componentPath -PathType Leaf)) {
+        throw "SBOM component was not found: $componentPath"
+    }
+    $componentName = [IO.Path]::GetFileNameWithoutExtension($componentPath)
+    $componentId = $componentName -replace '[^A-Za-z0-9.-]', '-'
+    [ordered]@{
+        name = $componentName; SPDXID = "SPDXRef-Package-$componentId"; versionInfo = $Version
+        downloadLocation = 'NOASSERTION'; filesAnalyzed = $false
+        licenseConcluded = 'AGPL-3.0-only'; licenseDeclared = 'AGPL-3.0-only'
+        checksums = @([ordered]@{ algorithm = 'SHA256'; checksumValue = (Get-FileHash -LiteralPath $componentPath -Algorithm SHA256).Hash.ToLowerInvariant() })
+        copyrightText = 'Copyright (c) 2026 DualLink contributors'
+    }
+}
+$additionalRelationships = foreach ($package in $additionalPackages) {
+    [ordered]@{ spdxElementId = 'SPDXRef-Package-DualLink'; relationshipType = 'CONTAINS'; relatedSpdxElement = $package.SPDXID }
+}
+$optionalPackages = @($additionalPackages | Where-Object { $null -ne $_ })
+$namespaceHash = @($applicationHash) + @($additionalPackages | ForEach-Object { $_.checksums[0].checksumValue }) -join '-'
 $created = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
 
 $document = [ordered]@{
@@ -14,7 +34,7 @@ $document = [ordered]@{
     dataLicense = 'CC0-1.0'
     SPDXID = 'SPDXRef-DOCUMENT'
     name = "DualLink-$Version"
-    documentNamespace = "https://github.com/Vansh-Bhardwaj/DualLink/sbom/$Version/$applicationHash"
+    documentNamespace = "https://github.com/Vansh-Bhardwaj/DualLink/sbom/$Version/$namespaceHash"
     creationInfo = [ordered]@{
         created = $created
         creators = @('Tool: DualLink-Generate-Sbom.ps1', 'Organization: DualLink contributors')
@@ -59,7 +79,7 @@ $document = [ordered]@{
             licenseConcluded = 'OFL-1.1'; licenseDeclared = 'OFL-1.1'
             copyrightText = 'Copyright The Inter Project Authors'
         }
-    )
+    ) + $optionalPackages
     hasExtractedLicensingInfos = @(
         [ordered]@{
             licenseId = 'LicenseRef-Windows-Packet-Filter-Personal-Use'
@@ -74,7 +94,7 @@ $document = [ordered]@{
         [ordered]@{ spdxElementId = 'SPDXRef-Package-DualLink'; relationshipType = 'CONTAINS'; relatedSpdxElement = 'SPDXRef-Package-DotNetRuntime' },
         [ordered]@{ spdxElementId = 'SPDXRef-Package-DualLink'; relationshipType = 'CONTAINS'; relatedSpdxElement = 'SPDXRef-Package-Inter' },
         [ordered]@{ spdxElementId = 'SPDXRef-Package-ProxiFyre'; relationshipType = 'DEPENDS_ON'; relatedSpdxElement = 'SPDXRef-Package-VCRedist' }
-    )
+    ) + $additionalRelationships
 }
 
 $directory = Split-Path -Parent $OutputPath

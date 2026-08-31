@@ -11,9 +11,20 @@ namespace DualLink;
 
 public sealed class Socks5Balancer : IAsyncDisposable
 {
+    private const int MaximumRouteCount = 8;
+    private const int RetiredRouteHistoryLimit = 16;
+    private static readonly byte[] SocksNoMethod = [5, 255];
+    private static readonly byte[] SocksPasswordMethod = [5, 2];
+    private static readonly byte[] SocksConnectSuccess = [5, 0, 0, 1, 0, 0, 0, 0, 0, 0];
+    private static readonly byte[] SocksConnectFailure = [5, 1, 0, 1, 0, 0, 0, 0, 0, 0];
+    private static readonly byte[] SocksAuthSuccess = [1, 0];
+    private static readonly byte[] SocksAuthFailure = [1, 1];
     private readonly int _configuredPort;
     private readonly Action<string> _log;
-    private readonly ProxyCredentials _credentials;
+    private readonly byte[] _usernameHash;
+    private readonly byte[] _passwordHash;
+    private readonly int _usernameLength;
+    private readonly int _passwordLength;
     private readonly CompatibilityGuardOptions _compatibilityGuard;
     private readonly TimeProvider _timeProvider;
     private TcpListener? _listener;
@@ -23,7 +34,12 @@ public sealed class Socks5Balancer : IAsyncDisposable
     private readonly object _sourceLock = new();
     private long _nextSource = -1;
     private long _nextClient;
+    private long _retirementSequence;
     private int _activeConnections;
+    private long _nextConnectionLogTicks;
+    private int _suppressedConnectionLogs;
+    private long _nextFailureLogTicks;
+    private int _suppressedFailureLogs;
     private readonly ConcurrentDictionary<long, Task> _clientTasks = new();
     private readonly SemaphoreSlim _connectionGate = new(512, 512);
     private RoutingMode _mode = RoutingMode.Smart;
@@ -37,9 +53,15 @@ public sealed class Socks5Balancer : IAsyncDisposable
         CompatibilityGuardOptions? compatibilityGuard = null,
         TimeProvider? timeProvider = null)
     {
+        if (port is < 0 or > 65535) throw new ArgumentOutOfRangeException(nameof(port));
+        ArgumentNullException.ThrowIfNull(log);
         _configuredPort = port;
         _log = log;
-        _credentials = credentials;
+        ArgumentNullException.ThrowIfNull(credentials);
+        _usernameHash = HashCredential(credentials.Username, nameof(credentials));
+        _passwordHash = HashCredential(credentials.Password, nameof(credentials));
+        _usernameLength = Encoding.UTF8.GetByteCount(credentials.Username);
+        _passwordLength = Encoding.UTF8.GetByteCount(credentials.Password);
         _compatibilityGuard = compatibilityGuard ?? CompatibilityGuardOptions.Default;
         if (_compatibilityGuard.WarmupDuration < TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(nameof(compatibilityGuard), "Warmup duration cannot be negative.");
@@ -116,13 +138,19 @@ public sealed class Socks5Balancer : IAsyncDisposable
 
     public void UpdateSources(IEnumerable<RouteDefinition> sources, RoutingMode mode)
     {
-        var definitions = sources.Where(x => x.Weight > 0).ToArray();
+        var definitions = NormalizeRouteDefinitions(sources);
         if (definitions.Length == 0)
             throw new InvalidOperationException("Keep at least one route enabled.");
 
         lock (_sourceLock)
         {
-            foreach (var route in _sessionRoutes.Values) route.SetAcceptingNewConnections(false);
+            foreach (var route in _sessionRoutes.Values)
+            {
+                if (route.AcceptingNewConnections)
+                    route.MarkRetired(Interlocked.Increment(ref _retirementSequence));
+                else
+                    route.SetAcceptingNewConnections(false);
+            }
             _routes = definitions.Select(x =>
             {
                 if (_sessionRoutes.TryGetValue(x.Address, out var existing))
@@ -136,6 +164,7 @@ public sealed class Socks5Balancer : IAsyncDisposable
             }).ToList();
             _mode = mode;
             RemoveInvalidAffinities();
+            PruneRetiredRoutes();
         }
         _log($"Route policy: {mode} · {string.Join(", ", definitions.Select(x => $"{x.Name ?? x.Address} {x.Weight}×"))}");
     }
@@ -159,22 +188,25 @@ public sealed class Socks5Balancer : IAsyncDisposable
     {
         while (!token.IsCancellationRequested && _listener is not null)
         {
+            TcpClient? accepted = null;
             try
             {
-                var client = await _listener.AcceptTcpClientAsync(token);
+                accepted = await _listener.AcceptTcpClientAsync(token);
                 if (!await _connectionGate.WaitAsync(0, token))
                 {
-                    client.Dispose();
+                    accepted.Dispose();
+                    accepted = null;
                     _log("Local connection limit reached; request rejected");
                     continue;
                 }
                 var id = Interlocked.Increment(ref _nextClient);
-                var task = HandleClientAsync(client, token);
+                var task = HandleClientAsync(accepted, token);
+                accepted = null;
                 _clientTasks[id] = task;
                 _ = task.ContinueWith(_ =>
                 {
                     _clientTasks.TryRemove(id, out Task? _);
-                    _connectionGate.Release();
+                    ReleaseConnectionSlot();
                 }, CancellationToken.None,
                     TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
             }
@@ -182,9 +214,67 @@ public sealed class Socks5Balancer : IAsyncDisposable
             catch (ObjectDisposedException) { break; }
             catch (Exception ex)
             {
+                accepted?.Dispose();
+                accepted = null;
                 _log($"Accept error: {ex.Message}");
                 await Task.Delay(250, token).ConfigureAwait(false);
             }
+            finally { accepted?.Dispose(); }
+        }
+    }
+
+    private void ReleaseConnectionSlot()
+    {
+        try { _connectionGate.Release(); }
+        catch (ObjectDisposedException) { }
+    }
+
+    private void LogConnection(IPAddress source, string host, int port)
+    {
+        // A busy launcher can open hundreds of short-lived connections. Keep
+        // activity useful without synchronously dispatching every connection to
+        // the WPF thread (which used to make the window feel sluggish).
+        var now = Stopwatch.GetTimestamp();
+        var interval = Math.Max(1L, Stopwatch.Frequency / 4);
+        while (true)
+        {
+            var next = Volatile.Read(ref _nextConnectionLogTicks);
+            if (now < next)
+            {
+                Interlocked.Increment(ref _suppressedConnectionLogs);
+                return;
+            }
+
+            if (Interlocked.CompareExchange(ref _nextConnectionLogTicks, now + interval, next) != next)
+                continue;
+
+            var suppressed = Interlocked.Exchange(ref _suppressedConnectionLogs, 0);
+            var suffix = suppressed == 0 ? string.Empty : $" (+{suppressed} more sessions)";
+            _log($"{source} → {host}:{port}{suffix}");
+            return;
+        }
+    }
+
+    private void LogConnectionFailure(Exception exception)
+    {
+        var now = Stopwatch.GetTimestamp();
+        var interval = Math.Max(1L, Stopwatch.Frequency / 4);
+        while (true)
+        {
+            var next = Volatile.Read(ref _nextFailureLogTicks);
+            if (now < next)
+            {
+                Interlocked.Increment(ref _suppressedFailureLogs);
+                return;
+            }
+
+            if (Interlocked.CompareExchange(ref _nextFailureLogTicks, now + interval, next) != next)
+                continue;
+
+            var suppressed = Interlocked.Exchange(ref _suppressedFailureLogs, 0);
+            var suffix = suppressed == 0 ? string.Empty : $" (+{suppressed} more failures)";
+            _log($"Connection failed: {exception.Message}{suffix}");
+            return;
         }
     }
 
@@ -210,12 +300,12 @@ public sealed class Socks5Balancer : IAsyncDisposable
                 const byte requiredMethod = 2;
                 if (!methods.Contains(requiredMethod))
                 {
-                    await inbound.WriteAsync(new byte[] { 5, 255 }, handshakeToken);
+                    await inbound.WriteAsync(SocksNoMethod, handshakeToken);
                     return;
                 }
-                await inbound.WriteAsync(new byte[] { 5, requiredMethod }, handshakeToken);
+                await inbound.WriteAsync(SocksPasswordMethod, handshakeToken);
                 // A valid username/password sub-negotiation is mandatory before CONNECT is read.
-                if (!await VerifyCredentialSubnegotiationAsync(inbound, _credentials, handshakeToken))
+                if (!await VerifyCredentialSubnegotiationAsync(inbound, handshakeToken))
                     return;
 
                 if (await ReadByteAsync(inbound, handshakeToken) != 5) throw new IOException("Invalid SOCKS5 request.");
@@ -231,6 +321,8 @@ public sealed class Socks5Balancer : IAsyncDisposable
                     4 => new IPAddress(await ReadExactAsync(inbound, 16, handshakeToken)).ToString(),
                     _ => throw new IOException("Unsupported destination address type.")
                 };
+                if (string.IsNullOrWhiteSpace(host) || host.Length > 253 || host.Any(char.IsControl))
+                    throw new IOException("Invalid destination host.");
                 var portBytes = await ReadExactAsync(inbound, 2, handshakeToken);
                 var port = (portBytes[0] << 8) | portBytes[1];
 
@@ -239,8 +331,8 @@ public sealed class Socks5Balancer : IAsyncDisposable
                 var source = connection.Source;
                 routeLease = connection.Lease;
                 outbound = socket;
-                await inbound.WriteAsync(new byte[] { 5, 0, 0, 1, 0, 0, 0, 0, 0, 0 }, handshakeToken);
-                _log($"{source} → {host}:{port}");
+                await inbound.WriteAsync(SocksConnectSuccess, handshakeToken);
+                LogConnection(source, host, port);
 
                 using var outboundStream = new NetworkStream(outbound, ownsSocket: false);
                 await RelayBidirectionallyAsync(inbound, outboundStream, routeLease, token);
@@ -248,8 +340,8 @@ public sealed class Socks5Balancer : IAsyncDisposable
             catch (OperationCanceledException) { }
             catch (Exception ex)
             {
-                _log($"Connection failed: {ex.Message}");
-                try { await client.GetStream().WriteAsync(new byte[] { 5, 1, 0, 1, 0, 0, 0, 0, 0, 0 }, CancellationToken.None); }
+                LogConnectionFailure(ex);
+                try { await client.GetStream().WriteAsync(SocksConnectFailure, CancellationToken.None); }
                 catch { }
             }
             finally
@@ -320,41 +412,54 @@ public sealed class Socks5Balancer : IAsyncDisposable
             ?? throw new SocketException((int)SocketError.HostNotFound);
 
         var destinationKey = $"{destination}:{port}";
-        var ordered = SelectCandidates(destinationKey);
         Exception? last = null;
-        foreach (var route in ordered)
+        // A route update can retire the selected list between candidate
+        // selection and reservation. Re-select once so a new session lands on
+        // the freshly enabled adapter instead of failing that small race.
+        for (var selectionAttempt = 0; selectionAttempt < 2; selectionAttempt++)
         {
-            var source = route.Source;
-            route.Reserve();
-            var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
-            var connectStarted = Stopwatch.GetTimestamp();
-            try
+            var ordered = SelectCandidates(destinationKey);
+            var reservedAnyRoute = false;
+            foreach (var route in ordered)
             {
-                socket.Bind(new IPEndPoint(source, 0));
-                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
-                timeout.CancelAfter(TimeSpan.FromSeconds(12));
-                await socket.ConnectAsync(new IPEndPoint(destination, port), timeout.Token);
-                route.MarkSuccess(Stopwatch.GetElapsedTime(connectStarted).TotalMilliseconds);
-                RememberDestination(destinationKey, route);
-                return (socket, source, new RouteLease(route));
-            }
-            catch (Exception ex)
-            {
-                last = ex;
-                socket.Dispose();
-                route.Release();
-                token.ThrowIfCancellationRequested();
-                if (IsRouteFailure(ex))
+                var source = route.Source;
+                // A route list is selected before the socket connect begins. The
+                // user can disable a route in that small window, so reservation
+                // must re-check the accepting flag atomically with its counter.
+                if (!route.TryReserve()) continue;
+                reservedAnyRoute = true;
+                var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+                var connectStarted = Stopwatch.GetTimestamp();
+                try
                 {
-                    route.MarkFailure();
-                    ForgetDestination(destinationKey, route);
-                    _log($"{route.Name} is unavailable; trying another link");
+                    socket.Bind(new IPEndPoint(source, 0));
+                    using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+                    timeout.CancelAfter(TimeSpan.FromSeconds(12));
+                    await socket.ConnectAsync(new IPEndPoint(destination, port), timeout.Token);
+                    route.MarkSuccess(Stopwatch.GetElapsedTime(connectStarted).TotalMilliseconds);
+                    RememberDestination(destinationKey, route);
+                    return (socket, source, new RouteLease(route));
                 }
-                else
+                catch (Exception ex)
                 {
-                    _log($"The destination rejected {route.Name}; trying another link");
+                    last = ex;
+                    socket.Dispose();
+                    route.Release();
+                    token.ThrowIfCancellationRequested();
+                    if (IsRouteFailure(ex))
+                    {
+                        route.MarkFailure();
+                        ForgetDestination(destinationKey, route);
+                        _log($"{route.Name} is unavailable; trying another link");
+                    }
+                    else
+                    {
+                        _log($"The destination rejected {route.Name}; trying another link");
+                    }
                 }
             }
+
+            if (reservedAnyRoute) break;
         }
         throw new IOException("No selected link could reach the destination.", last);
     }
@@ -395,6 +500,39 @@ public sealed class Socks5Balancer : IAsyncDisposable
         }
     }
 
+    private static RouteDefinition[] NormalizeRouteDefinitions(IEnumerable<RouteDefinition> sources)
+    {
+        ArgumentNullException.ThrowIfNull(sources);
+        var definitions = new List<RouteDefinition>(2);
+        var addresses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var definition in sources)
+        {
+            if (definition.Weight <= 0) continue;
+            if (!IPAddress.TryParse(definition.Address, out var address) ||
+                address.AddressFamily != AddressFamily.InterNetwork ||
+                address.Equals(IPAddress.Any) ||
+                address.Equals(IPAddress.Broadcast) ||
+                IsMulticast(address))
+                throw new ArgumentException("Each route must contain a valid IPv4 source address.", nameof(sources));
+
+            var canonicalAddress = address.ToString();
+            if (!addresses.Add(canonicalAddress))
+                throw new ArgumentException("Route source addresses must be unique.", nameof(sources));
+            if (definitions.Count >= MaximumRouteCount)
+                throw new ArgumentException($"A maximum of {MaximumRouteCount} routes can be active.", nameof(sources));
+
+            var name = string.IsNullOrWhiteSpace(definition.Name) ? null : definition.Name.Trim();
+            if (name is not null && (name.Length > 128 || name.Any(char.IsControl)))
+                throw new ArgumentException("A route name is invalid.", nameof(sources));
+
+            definitions.Add(definition with { Address = canonicalAddress, Name = name });
+        }
+        return definitions.ToArray();
+    }
+
+    private static bool IsMulticast(IPAddress address) =>
+        address.GetAddressBytes()[0] is >= 224 and <= 239;
+
     private List<RouteState> SelectSmartCandidates(IReadOnlyList<RouteState> pool, string destinationKey, DateTimeOffset now)
     {
         var ranked = Rotate(pool)
@@ -423,7 +561,8 @@ public sealed class Socks5Balancer : IAsyncDisposable
     {
         lock (_sourceLock)
         {
-            if (_mode != RoutingMode.Smart || _routes.Count < 2) return;
+            if (_mode != RoutingMode.Smart || _routes.Count < 2 ||
+                !route.AcceptingNewConnections || !_routes.Contains(route)) return;
             var now = _timeProvider.GetUtcNow();
             if (_destinationAffinities.Count >= _compatibilityGuard.MaximumDestinations)
                 RemoveExpiredAffinities(now, removeOldestWhenFull: true);
@@ -445,6 +584,18 @@ public sealed class Socks5Balancer : IAsyncDisposable
         var validRoutes = new HashSet<RouteState>(_routes);
         foreach (var key in _destinationAffinities.Where(x => !validRoutes.Contains(x.Value.Route)).Select(x => x.Key).ToArray())
             _destinationAffinities.Remove(key);
+    }
+
+    private void PruneRetiredRoutes()
+    {
+        var current = new HashSet<RouteState>(_routes);
+        var retired = _sessionRoutes
+            .Where(x => !current.Contains(x.Value) && x.Value.ActiveConnections == 0)
+            .OrderBy(x => x.Value.RetirementSequence)
+            .ToArray();
+        var removeCount = Math.Max(0, retired.Length - RetiredRouteHistoryLimit);
+        for (var index = 0; index < removeCount; index++)
+            _sessionRoutes.Remove(retired[index].Key);
     }
 
     private void RemoveExpiredAffinities(DateTimeOffset now, bool removeOldestWhenFull = false)
@@ -475,39 +626,53 @@ public sealed class Socks5Balancer : IAsyncDisposable
             .Concat(_routes.Except(routes).OrderBy(x => x.UnhealthyUntilUtc)).ToList();
     }
 
-    private static async Task<bool> VerifyCredentialSubnegotiationAsync(
+    private async Task<bool> VerifyCredentialSubnegotiationAsync(
         Stream stream,
-        ProxyCredentials credentials,
         CancellationToken token)
     {
         if (await ReadByteAsync(stream, token) != 1) return false;
         var username = await ReadExactAsync(stream, await ReadByteAsync(stream, token), token);
         var password = await ReadExactAsync(stream, await ReadByteAsync(stream, token), token);
-        var expectedUser = Encoding.UTF8.GetBytes(credentials.Username);
-        var expectedPassword = Encoding.UTF8.GetBytes(credentials.Password);
-        var userValid = FixedTimeEquals(username, expectedUser);
-        var passwordValid = FixedTimeEquals(password, expectedPassword);
+        var userValid = FixedTimeEquals(username, _usernameHash, _usernameLength);
+        var passwordValid = FixedTimeEquals(password, _passwordHash, _passwordLength);
         var valid = userValid & passwordValid;
-        await stream.WriteAsync(new byte[] { 1, valid ? (byte)0 : (byte)1 }, token);
+        await stream.WriteAsync(valid ? SocksAuthSuccess : SocksAuthFailure, token);
         return valid;
     }
 
-    private static bool FixedTimeEquals(byte[] supplied, byte[] expected)
+    private static byte[] HashCredential(string value, string parameterName)
     {
-        var suppliedHash = SHA256.HashData(supplied);
-        var expectedHash = SHA256.HashData(expected);
-        return CryptographicOperations.FixedTimeEquals(suppliedHash, expectedHash) && supplied.Length == expected.Length;
+        ArgumentNullException.ThrowIfNull(value, parameterName);
+        var length = Encoding.UTF8.GetByteCount(value);
+        if (length is < 1 or > byte.MaxValue)
+            throw new ArgumentException("Proxy credentials must be between 1 and 255 UTF-8 bytes.", parameterName);
+        return SHA256.HashData(Encoding.UTF8.GetBytes(value));
+    }
+
+    private static bool FixedTimeEquals(ReadOnlySpan<byte> supplied, ReadOnlySpan<byte> expectedHash, int expectedLength)
+    {
+        Span<byte> suppliedHash = stackalloc byte[SHA256.HashSizeInBytes];
+        SHA256.TryHashData(supplied, suppliedHash, out _);
+        var hashMatches = CryptographicOperations.FixedTimeEquals(suppliedHash, expectedHash);
+        return hashMatches & supplied.Length == expectedLength;
     }
 
     private static async Task<int> ReadByteAsync(Stream stream, CancellationToken token)
     {
-        var buffer = new byte[1];
-        if (await stream.ReadAsync(buffer, token) != 1) throw new EndOfStreamException();
-        return buffer[0];
+        var buffer = ArrayPool<byte>.Shared.Rent(1);
+        try
+        {
+            if (await stream.ReadAsync(buffer.AsMemory(0, 1), token) != 1) throw new EndOfStreamException();
+            return buffer[0];
+        }
+        finally { ArrayPool<byte>.Shared.Return(buffer); }
     }
 
     private static async Task<byte[]> ReadExactAsync(Stream stream, int count, CancellationToken token)
     {
+        if (count is < 0 or > ushort.MaxValue)
+            throw new IOException("SOCKS5 field is too large.");
+        if (count == 0) return Array.Empty<byte>();
         var buffer = new byte[count];
         var offset = 0;
         while (offset < count)
@@ -537,7 +702,9 @@ public sealed class Socks5Balancer : IAsyncDisposable
         private long _downloadedBytes;
         private long _uploadedBytes;
         private long _successfulConnections;
+        private long _retirementSequence;
         private readonly TransferRateLimiter _speedLimiter = new();
+        private readonly object _stateGate = new();
 
         public RouteState(RouteDefinition definition) => Update(definition);
         public string Address { get; private set; } = string.Empty;
@@ -545,7 +712,12 @@ public sealed class Socks5Balancer : IAsyncDisposable
         public string Name { get; private set; } = string.Empty;
         public int Weight { get; private set; }
         public bool IsPrimary { get; private set; }
-        public bool AcceptingNewConnections { get; private set; }
+        private bool _acceptingNewConnections;
+        public bool AcceptingNewConnections
+        {
+            get { lock (_stateGate) return _acceptingNewConnections; }
+        }
+        public long RetirementSequence => Volatile.Read(ref _retirementSequence);
         public int SpeedLimitMbps => _speedLimiter.MegabitsPerSecond;
         public int ConnectionShare => SpeedLimitMbps <= 0 ? 10 : Math.Clamp((int)Math.Ceiling(SpeedLimitMbps / 50d), 1, 10);
         public int ActiveConnections => Volatile.Read(ref _activeConnections);
@@ -571,13 +743,30 @@ public sealed class Socks5Balancer : IAsyncDisposable
             Name = definition.Name ?? definition.Address;
             Weight = Math.Clamp(definition.Weight, 1, 10);
             IsPrimary = definition.IsPrimary;
-            AcceptingNewConnections = true;
+            lock (_stateGate) _acceptingNewConnections = true;
+            Interlocked.Exchange(ref _retirementSequence, 0);
             _speedLimiter.SetLimit(definition.SpeedLimitMbps);
         }
 
-        public void SetAcceptingNewConnections(bool value) => AcceptingNewConnections = value;
+        public void SetAcceptingNewConnections(bool value)
+        {
+            lock (_stateGate) _acceptingNewConnections = value;
+        }
+        public void MarkRetired(long sequence)
+        {
+            lock (_stateGate) _acceptingNewConnections = false;
+            Interlocked.Exchange(ref _retirementSequence, sequence);
+        }
 
-        public void Reserve() => Interlocked.Increment(ref _activeConnections);
+        public bool TryReserve()
+        {
+            lock (_stateGate)
+            {
+                if (!_acceptingNewConnections) return false;
+                Interlocked.Increment(ref _activeConnections);
+                return true;
+            }
+        }
         public void Release() => Interlocked.Decrement(ref _activeConnections);
         public void RecordDownload(int bytes) => Interlocked.Add(ref _downloadedBytes, bytes);
         public void RecordUpload(int bytes) => Interlocked.Add(ref _uploadedBytes, bytes);

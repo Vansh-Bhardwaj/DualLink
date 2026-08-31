@@ -9,7 +9,7 @@ DualLink applies two independent internet links to new TCP connections made by s
 
 Download the latest offline installer from [GitHub Releases](https://github.com/Vansh-Bhardwaj/DualLink/releases/latest). It includes the required runtime, local filter, and driver. Verify the included `SHA256SUMS.txt` before running it.
 
-![DualLink 3.1 with per-route speed controls, application detection, and the Wi-Fi network picker](docs/screenshots/duallink-3.1-wifi.png)
+![DualLink 4 with live per-route speed controls and application-scoped routing](docs/screenshots/duallink-4.0.png)
 
 ## How it works
 
@@ -52,7 +52,7 @@ The Details drawer checks both routes, DNS, route independence, and filtering in
 
 ## Safety model
 
-DualLink only filters processes the user selects. Its local proxy listens on loopback, uses fresh random credentials for each run, and is not exposed to the LAN. Disarming or exiting restores the previous local-filter configuration. An independent watchdog also restores that configuration if the UI exits unexpectedly. Adapter changes are detected automatically; an available route continues carrying new sessions while another reconnects. Turning a route off affects new connections immediately while established ones finish normally.
+DualLink only filters processes the user selects. The desktop interface runs with normal user permissions; Windows asks for administrator approval only when the user enables boosting. Its elevated local helper owns packet-filter changes and the local proxy, which listens only on loopback, uses fresh random credentials for each run, and is not exposed to the LAN. Disarming or exiting restores the previous local-filter configuration. An independent watchdog also restores that configuration if the interface or helper exits unexpectedly. Adapter changes are detected automatically; an available route continues carrying new sessions while another reconnects. Turning a route off affects new connections immediately while established ones finish normally.
 
 ## Limits
 
@@ -68,7 +68,7 @@ Developers need Windows 10/11 x64, the .NET 10 SDK, and Inno Setup 6. Run `build
 
 - Windows 10 or Windows 11, x64
 - Two independently routed IPv4 internet adapters
-- Administrator access for the local filter service and driver
+- Administrator approval when enabling the local filter helper
 
 ## Legal and security
 

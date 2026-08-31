@@ -18,6 +18,7 @@
     <Product>DualLink Application Booster</Product>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\DualLink.Service.Protocol\DualLink.Service.Protocol.csproj" />
     <Page Remove="MainWindow.xaml" />
     <Resource Include="Assets\Fonts\*.ttf" />
     <Resource Include="..\..\assets\DualLink.ico" Link="Assets\DualLink.ico" />

@@ -1,9 +1,12 @@
 #define AppName "DualLink"
 #ifndef AppVersion
-  #define AppVersion "2.0.0"
+  #define AppVersion "4.0.0"
 #endif
 #ifndef NumericVersion
-  #define NumericVersion "2.0.0"
+  #define NumericVersion "4.0.0"
+#endif
+#ifndef ReleaseStage
+  #define ReleaseStage "Stable"
 #endif
 #define AppPublisher "DualLink"
 #define AppExeName "DualLink.exe"
@@ -46,8 +49,12 @@ InfoBeforeFile=..\INSTALL-NOTICE.txt
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"; Flags: unchecked
 
+[Dirs]
+Name: "{commonappdata}\DualLink\Recovery"; Permissions: admins-full system-full
+
 [Files]
 Source: "..\dist\publish\DualLink.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\dist\publish\DualLink.Service.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\dist\publish\DualLink.Watchdog.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "prereqs\VC_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
 Source: "prereqs\Windows.Packet.Filter.3.6.2.1.x64.msi"; DestDir: "{tmp}"; Flags: deleteafterinstall
@@ -72,7 +79,7 @@ Name: "{autodesktop}\DualLink"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{a
 Filename: "{tmp}\VC_redist.x64.exe"; Parameters: "/install /quiet /norestart"; StatusMsg: "Installing Visual C++ runtime..."; Flags: waituntilterminated
 Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\Windows.Packet.Filter.3.6.2.1.x64.msi"" /qn /norestart"; StatusMsg: "Installing Windows Packet Filter..."; Flags: waituntilterminated; Check: not PacketFilterInstalled
 Filename: "msiexec.exe"; Parameters: "/i ""{tmp}\ProxiFyre-2.5.0-win-x64.msi"" /qn /norestart"; StatusMsg: "Installing the application filter..."; Flags: waituntilterminated; Check: not ProxiFyreInstalled
-Filename: "{app}\{#AppExeName}"; Description: "Open DualLink now"; Flags: nowait postinstall skipifsilent runascurrentuser
+Filename: "{app}\{#AppExeName}"; Description: "Open DualLink now"; Flags: nowait postinstall skipifsilent skipifdoesntexist runascurrentuser
 
 [Code]
 const

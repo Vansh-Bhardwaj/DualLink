@@ -21,7 +21,7 @@ jobs:
           $informational = [string]$props.Project.PropertyGroup.InformationalVersion
           $numeric = (Get-Content -Raw -LiteralPath "VERSION").Trim()
 
-          if ($tag -match '^v(?<version>\d+\.\d+\.\d+-dev\.\d+)$') {
+          if ($tag -match '^v(?<version>(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)-(?:alpha|beta|rc|dev)\.[1-9]\d*)$') {
             if ($informational -ne $Matches.version) {
               throw "Development tag $tag does not match InformationalVersion $informational."
             }
@@ -29,7 +29,7 @@ jobs:
             exit 0
           }
 
-          if ($tag -match '^v(?<version>\d+\.\d+\.\d+)$') {
+          if ($tag -match '^v(?<version>(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$') {
             if ($numeric -ne $Matches.version -or $informational -ne $Matches.version) {
               throw "Stable tag $tag does not match VERSION ($numeric) and InformationalVersion ($informational)."
             }

@@ -64,6 +64,47 @@ Console.WriteLine("PASS: dual-link rotation and live zero-weight switching: " + 
 Console.WriteLine("PASS: successful routes expose latency and app traffic state");
 Console.WriteLine("PASS: per-boost contribution evidence resets between boosts");
 
+await using (var routeHistoryProxy = new Socks5Balancer(0, _ => { }, credentials))
+{
+    await routeHistoryProxy.StartAsync(new[]
+    {
+        new RouteDefinition("192.0.2.1", 1, true, "Route 1")
+    }, RoutingMode.Smart);
+    for (var index = 2; index <= 40; index++)
+    {
+        routeHistoryProxy.UpdateSources(new[]
+        {
+            new RouteDefinition($"192.0.2.{index}", 1, true, $"Route {index}")
+        }, RoutingMode.Smart);
+    }
+
+    if (routeHistoryProxy.RouteStatuses.Count > 17)
+        throw new Exception("Retired route history grew beyond its bounded memory budget.");
+}
+Console.WriteLine("PASS: retired route history remains bounded across adapter changes");
+
+await using (var routeValidationProxy = new Socks5Balancer(0, _ => { }, credentials))
+{
+    await routeValidationProxy.StartAsync(new[]
+    {
+        new RouteDefinition("127.0.0.1", 1, true, "Known route")
+    }, RoutingMode.Smart);
+    try
+    {
+        routeValidationProxy.UpdateSources(new[]
+        {
+            new RouteDefinition("0.0.0.0", 1, true, "Wildcard route")
+        }, RoutingMode.Smart);
+        throw new Exception("Wildcard source address was accepted as a routing interface.");
+    }
+    catch (ArgumentException)
+    {
+        if (routeValidationProxy.RouteStatuses.Single().Address != "127.0.0.1")
+            throw new Exception("Invalid route input changed the active route policy.");
+    }
+}
+Console.WriteLine("PASS: invalid route addresses are rejected without changing the active policy");
+
 var warmupSources = new List<string>();
 var warmupServer = new TcpListener(IPAddress.Any, 0);
 warmupServer.Start();
@@ -246,6 +287,31 @@ if (await health.CheckAndRecoverAsync() || restartCount != 1)
 
 Console.WriteLine("PASS: stopped application filter is detected and recovered");
 
+var concurrentFilterRunning = false;
+var concurrentRestartCount = 0;
+var restartEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+var releaseRestart = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+var concurrentHealth = new BoostHealthMonitor(
+    () => true,
+    () => Task.FromResult(concurrentFilterRunning),
+    async () =>
+    {
+        Interlocked.Increment(ref concurrentRestartCount);
+        restartEntered.SetResult();
+        await releaseRestart.Task;
+        concurrentFilterRunning = true;
+    });
+var firstRecovery = concurrentHealth.CheckAndRecoverAsync();
+await restartEntered.Task.WaitAsync(cts.Token);
+var secondRecovery = concurrentHealth.CheckAndRecoverAsync();
+await Task.Delay(50, cts.Token);
+if (concurrentRestartCount != 1)
+    throw new Exception("Concurrent health checks started duplicate filter recoveries.");
+releaseRestart.SetResult();
+if (!await firstRecovery || await secondRecovery)
+    throw new Exception("Concurrent health checks did not serialize filter recovery.");
+Console.WriteLine("PASS: concurrent health checks serialize filter recovery");
+
 var limiter = new TransferRateLimiter();
 limiter.SetLimit(2);
 var throttleTimer = System.Diagnostics.Stopwatch.StartNew();
@@ -261,7 +327,19 @@ unlimitedTimer.Stop();
 if (unlimitedTimer.Elapsed > TimeSpan.FromMilliseconds(100))
     throw new Exception("Disabled route limiter still delayed traffic.");
 
+limiter.SetLimit(1);
+await limiter.ThrottleAsync(64 * 1024, cts.Token);
+var staleWait = limiter.ThrottleAsync(256 * 1024, cts.Token).AsTask();
+await Task.Delay(75, cts.Token);
+var disableTimer = System.Diagnostics.Stopwatch.StartNew();
+limiter.SetLimit(0);
+await staleWait;
+disableTimer.Stop();
+if (disableTimer.Elapsed > TimeSpan.FromSeconds(1))
+    throw new Exception($"Disabling a live route did not release its queued limiter wait: {disableTimer.Elapsed.TotalMilliseconds:0} ms.");
+
 Console.WriteLine($"PASS: per-route upload and download limiter pacing: {throttleTimer.Elapsed.TotalMilliseconds:0} ms");
+Console.WriteLine("PASS: live route disable releases stale limiter waits");
 
 var friendlyLink = new LinkInfo
 {
@@ -318,6 +396,21 @@ if (!update.IsAvailable || !update.CanInstall || update.Version != "3.1.0" || cu
     UpdateChecker.FindChecksum($"{manifestHash}  another.exe", "DualLink-3.1.0-Setup-x64.exe") is not null)
     throw new Exception("Stable update asset or checksum selection regressed.");
 Console.WriteLine("PASS: stable updater selects the exact installer and matching checksum asset");
+
+var previewJson = """
+[
+  { "name": "v4.0.0-alpha.3" },
+  { "name": "v4.0.0-beta.1" },
+  { "name": "v4.0.0-rc.1" },
+  { "name": "v4.0.0-dev.9" },
+  { "name": "v4.0.0-preview.99" }
+]
+""";
+var previewUpdate = UpdateChecker.EvaluatePreviewTagsJson(previewJson, "4.0.0-alpha.3");
+var currentPreview = UpdateChecker.EvaluatePreviewTagsJson(previewJson, "4.0.0-rc.1");
+if (!previewUpdate.IsAvailable || previewUpdate.Version != "4.0.0-rc.1" || currentPreview.IsAvailable)
+    throw new InvalidOperationException("Preview updater did not order dev, alpha, beta, RC, and stable metadata correctly.");
+Console.WriteLine("PASS: preview updater recognizes alpha, beta, RC, and development tags");
 
 var installerBytes = Encoding.UTF8.GetBytes("verified installer test payload");
 var installerHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(installerBytes)).ToLowerInvariant();
@@ -499,7 +592,7 @@ var serviceCommands = new List<string>();
 Task<ProcessResult> FakeProcessRunner(string fileName, string arguments, bool _)
 {
     serviceCommands.Add($"{fileName} {arguments}");
-    if (fileName.Equals("sc.exe", StringComparison.OrdinalIgnoreCase))
+    if (Path.GetFileName(fileName).Equals("sc.exe", StringComparison.OrdinalIgnoreCase))
     {
         if (arguments.StartsWith("stop ", StringComparison.OrdinalIgnoreCase)) serviceRunning = false;
         if (arguments.StartsWith("start ", StringComparison.OrdinalIgnoreCase))
@@ -555,12 +648,44 @@ try
     await manager.RestoreAsync();
     if (File.ReadAllText(managerConfig) != "original-config" || File.Exists(manager.SessionPath))
         throw new Exception("Live target update changed the original filter recovery contract.");
+
+    File.WriteAllText(manager.SessionPath, "{not-json");
+    try
+    {
+        await manager.RestoreAsync();
+        throw new Exception("Corrupt recovery state unexpectedly reported success.");
+    }
+    catch (InvalidDataException) when (File.Exists(manager.SessionPath))
+    {
+        // Corrupt state must remain available for diagnosis and manual recovery.
+    }
+    File.Delete(manager.SessionPath);
+
+    File.WriteAllText(manager.SessionPath, JsonSerializer.Serialize(new BoostSessionState
+    {
+        ConfigExisted = true,
+        ServiceWasRunning = true,
+        ConfigPath = managerConfig,
+        BackupPath = backupPath
+    }));
+    File.Delete(backupPath);
+    try
+    {
+        await manager.RestoreAsync();
+        throw new Exception("Missing recovery backup unexpectedly reported success.");
+    }
+    catch (InvalidDataException) when (File.Exists(manager.SessionPath))
+    {
+        // The marker stays in place so a missing original is never silently accepted.
+    }
+    File.Delete(manager.SessionPath);
+    await manager.RestoreAsync();
 }
 finally
 {
     if (Directory.Exists(managerRoot)) Directory.Delete(managerRoot, true);
 }
-Console.WriteLine("PASS: application targets update without restarting active proxy transfers");
+Console.WriteLine("PASS: application targets update live and invalid recovery state is preserved");
 
 async Task<TcpClient> OpenTunnelAsync(int proxyPort, int targetPort, CancellationToken token, ProxyCredentials proxyCredentials)
 {

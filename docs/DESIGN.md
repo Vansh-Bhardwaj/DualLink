@@ -6,12 +6,12 @@ DualLink is a compact network-control utility for Windows users downloading larg
 
 ## Platform design synthesis
 
-DualLink combines principles from Apple, Google, and Microsoft without copying proprietary assets or pretending to belong to another platform.
+DualLink combines the useful conventions of Apple, Google, and Microsoft without copying proprietary assets or pretending to belong to another platform.
 
-- Apple contributes restraint, hierarchy, alignment, and shallow material depth.
-- Google contributes direct language, legible state changes, and predictable component behavior.
-- Microsoft contributes native Windows conventions, keyboard navigation, visible focus, tray behavior, and accessibility.
-- Inter remains the product typeface. SF Pro and Google Sans are proprietary and are not redistributed.
+- Apple contributes restraint, hierarchy, alignment, and shallow material depth. Surfaces should feel calm, with one clear action at a time.
+- Google contributes direct language, legible state changes, predictable components, and accessible contrast. Every state should be understandable without guessing.
+- Microsoft contributes native Windows conventions, keyboard navigation, visible focus, tray behavior, DPI resilience, and automation names.
+- Inter remains the product typeface. SF Pro and Google Sans are proprietary and are not redistributed. The window keeps standard Windows actions and does not imitate macOS chrome.
 
 ## Type scale
 
@@ -21,6 +21,7 @@ DualLink combines principles from Apple, Google, and Microsoft without copying p
 - 12.5 px Regular: body and control text.
 - 12 px Regular: supporting text, with an 18 px line height.
 - SemiBold is reserved for state and primary action emphasis. Uppercase labels are not used.
+- Text uses normal sentence case, consistent tracking, and no decorative all-caps eyebrow labels. Long names truncate only when space is limited and remain available in a tooltip or accessible name.
 
 ## Visual direction: quiet network instrument
 
@@ -32,6 +33,7 @@ DualLink combines principles from Apple, Google, and Microsoft without copying p
 - Use a restrained indigo action color. Ethernet amber and Wi-Fi cyan identify physical links only.
 - Use hairline separators and grouped list rows instead of bordered cards.
 - Use geometry-based monochrome icons with a consistent 16-pixel optical size.
+- Use 34 px minimum pointer targets for desktop controls and a visible two-pixel indigo focus ring for keyboard users. Hover, pressed, disabled, and selected states must remain distinct without relying on color alone.
 
 ## Layout and reading order
 
@@ -46,7 +48,7 @@ The left utility pane remains 292 pixels wide. The application list receives all
 ## Components
 
 - **Status capsule:** live dot, plain-language state, no border when idle.
-- **Link row:** adapter selector, speed, small proportional weight stepper, and an Only command.
+- **Link row:** adapter selector, speed, small proportional weight stepper, and an Only command. The selector shows the friendly adapter or network name first; technical details are secondary.
 - **Application row:** colored identity mark, name, description, running state, and a switch at the trailing edge.
 - **Boost control:** compact two-state button. Red is reserved for Restore while active.
 - **Inspector:** right-edge sheet for plain-language diagnostics or settings. Technical activity is hidden behind an explicit secondary control.
@@ -60,6 +62,7 @@ The left utility pane remains 292 pixels wide. The application list receives all
 - Recovering: amber state and automatic service restart.
 - Missing filter or adapters: explicit non-green state and actionable diagnostics.
 - Running versus idle applications: quiet status text; selection remains independent.
+- Empty and unavailable lists: explain what is missing and offer one next action, without exposing raw diagnostics by default.
 
 ## Finish gate
 
@@ -71,3 +74,4 @@ The left utility pane remains 292 pixels wide. The application list receives all
 - Diagnostic results lead with an outcome and action; IP addresses and technical activity are never the default surface.
 - Screenshot review must show a clear primary action and no repeated decorative container treatment.
 - The app must remain recognizably Windows: standard window actions, visible keyboard focus, and no imitation macOS chrome.
+- Automation names and help text describe the action in plain language. Focus order follows the reading order: title bar, connections, applications, then boost.

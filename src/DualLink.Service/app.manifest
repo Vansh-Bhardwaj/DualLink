@@ -1,12 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
-  <assemblyIdentity version="1.0.0.0" name="DualLink.app" />
+  <assemblyIdentity version="1.0.0.0" name="DualLink.Service" />
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>
       <requestedPrivileges>
-        <!-- The WPF controller is intentionally unelevated. Only DualLink.Service
-             carries requireAdministrator for packet-filter operations. -->
-        <requestedExecutionLevel level="asInvoker" uiAccess="false" />
+        <!-- Only this helper is elevated. The WPF UI must not carry this manifest. -->
+        <requestedExecutionLevel level="requireAdministrator" uiAccess="false" />
       </requestedPrivileges>
     </security>
   </trustInfo>

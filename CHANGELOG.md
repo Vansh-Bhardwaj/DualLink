@@ -2,6 +2,16 @@
 
 All notable DualLink changes are recorded here. Versions follow semantic versioning.
 
+## 4.0.0-alpha.3 - 2026-08-31
+
+- Moved packet-filter control, local routing, and recovery into a short-lived elevated helper while the desktop interface now runs with ordinary user permissions.
+- Added authenticated, bounded local IPC tied to the exact requesting process, with a versioned protocol and fail-safe restoration when either side exits.
+- Restricted active filter configuration files to administrators and SYSTEM while temporary local proxy credentials exist, then restored the original access rules.
+- Kept an independent elevated watchdog alive for recovery if the interface or helper stops unexpectedly.
+- Reduced routing allocations, bounded retired-route history, serialized recovery, and made live speed-limit changes release stale waits immediately.
+- Improved keyboard focus, control sizing, dropdown contrast, text truncation, tooltips, and compact-window layout.
+- Added local alpha, beta, and stable branch gates plus reproducible three-file release validation.
+
 ## 4.0.0-alpha.2 - 2026-08-31
 
 - Moved running-application discovery off the interface thread so inspecting Windows processes cannot stall animation, input, or scrolling.

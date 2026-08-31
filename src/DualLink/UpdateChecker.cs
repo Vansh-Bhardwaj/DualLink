@@ -164,7 +164,7 @@ public static class UpdateChecker
         return null;
     }
 
-    private static UpdateCheckResult EvaluatePreviewTagsJson(string json, string currentVersion)
+    internal static UpdateCheckResult EvaluatePreviewTagsJson(string json, string currentVersion)
     {
         using var document = JsonDocument.Parse(json);
         var candidates = new List<VersionCandidate>();
@@ -210,9 +210,9 @@ public static class UpdateChecker
 
     private sealed record VersionCandidate(ParsedVersion Version, string PageUrl, string? InstallerUrl, string? ChecksumsUrl);
 
-    private sealed record ParsedVersion(int Major, int Minor, int Patch, int PreviewNumber, string Original) : IComparable<ParsedVersion>
+    private sealed record ParsedVersion(int Major, int Minor, int Patch, int StageRank, int PreviewNumber, string Original) : IComparable<ParsedVersion>
     {
-        public static ParsedVersion Parse(string value) => TryParse(value, out var parsed) ? parsed : new ParsedVersion(0, 0, 0, 0, value);
+        public static ParsedVersion Parse(string value) => TryParse(value, out var parsed) ? parsed : new ParsedVersion(0, 0, 0, 0, 0, value);
 
         public static bool TryParse(string value, out ParsedVersion parsed)
         {
@@ -222,21 +222,35 @@ public static class UpdateChecker
             if (numbers.Length < 3 || !int.TryParse(numbers[0], out var major) ||
                 !int.TryParse(numbers[1], out var minor) || !int.TryParse(numbers[2], out var patch))
             {
-                parsed = new ParsedVersion(0, 0, 0, 0, normalized);
+                parsed = new ParsedVersion(0, 0, 0, 0, 0, normalized);
                 return false;
             }
 
-            var preview = -1;
+            var stageRank = 4;
+            var preview = 0;
             if (parts.Length == 2)
             {
                 var suffix = parts[1].Split('.');
-                if (suffix.Length != 2 || !suffix[0].Equals("dev", StringComparison.OrdinalIgnoreCase) || !int.TryParse(suffix[1], out preview))
+                if (suffix.Length != 2 || !int.TryParse(suffix[1], out preview) || preview <= 0)
                 {
-                    parsed = new ParsedVersion(0, 0, 0, 0, normalized);
+                    parsed = new ParsedVersion(0, 0, 0, 0, 0, normalized);
+                    return false;
+                }
+                stageRank = suffix[0].ToLowerInvariant() switch
+                {
+                    "dev" => 0,
+                    "alpha" => 1,
+                    "beta" => 2,
+                    "rc" => 3,
+                    _ => -1
+                };
+                if (stageRank < 0)
+                {
+                    parsed = new ParsedVersion(0, 0, 0, 0, 0, normalized);
                     return false;
                 }
             }
-            parsed = new ParsedVersion(major, minor, patch, preview, normalized);
+            parsed = new ParsedVersion(major, minor, patch, stageRank, preview, normalized);
             return true;
         }
 
@@ -249,8 +263,8 @@ public static class UpdateChecker
             if (result != 0) return result;
             result = Patch.CompareTo(other.Patch);
             if (result != 0) return result;
-            if (PreviewNumber < 0 && other.PreviewNumber >= 0) return 1;
-            if (PreviewNumber >= 0 && other.PreviewNumber < 0) return -1;
+            result = StageRank.CompareTo(other.StageRank);
+            if (result != 0) return result;
             return PreviewNumber.CompareTo(other.PreviewNumber);
         }
     }

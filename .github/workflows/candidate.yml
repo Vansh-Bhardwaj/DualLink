@@ -26,6 +26,7 @@ jobs:
         with:
           subject-path: |
             dist/publish/DualLink.exe
+            dist/publish/DualLink.Service.exe
             dist/publish/DualLink.Watchdog.exe
             dist/DualLink.spdx.json
       - uses: actions/upload-artifact@v7
@@ -33,6 +34,7 @@ jobs:
           name: DualLink-${{ github.sha }}
           path: |
             dist/publish/DualLink.exe
+            dist/publish/DualLink.Service.exe
             dist/publish/DualLink.Watchdog.exe
             dist/DualLink.spdx.json
           if-no-files-found: error

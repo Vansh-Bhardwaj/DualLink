@@ -3,7 +3,8 @@
     <VersionPrefix>4.0.0</VersionPrefix>
     <AssemblyVersion>4.0.0.0</AssemblyVersion>
     <FileVersion>4.0.0.0</FileVersion>
-    <InformationalVersion>4.0.0-alpha.2</InformationalVersion>
+    <InformationalVersion>4.0.0-alpha.3</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Company>DualLink</Company>
     <Product>DualLink Application Booster</Product>
     <Copyright>Copyright © 2026 DualLink</Copyright>

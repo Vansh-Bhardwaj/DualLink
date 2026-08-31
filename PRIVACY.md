@@ -9,9 +9,9 @@ DualLink does not include analytics, advertising, telemetry, crash upload, user 
 DualLink stores the following under `%LOCALAPPDATA%\DualLink`:
 
 - selected applications and network adapters;
-- route weights and UI preferences;
-- a temporary recovery record while boosting is active;
-- a temporary backup of the pre-existing ProxiFyre configuration, when one exists.
+- route weights and UI preferences.
+
+While boosting is active, the elevated local helper keeps a temporary recovery record and, when needed, a backup of the pre-existing filter configuration under `%PROGRAMDATA%\DualLink\Recovery`. That folder is restricted to Administrators and SYSTEM. The helper deletes both files after routing is restored.
 
 Activity messages are kept in memory for the current session. ProxiFyre may write operational logs under its installation directory. DualLink does not transmit these files.
 
@@ -29,7 +29,7 @@ DualLink makes no background analytics or update requests. When the user explici
 
 ## Administrative access
 
-DualLink requests administrator privileges because it controls a local Windows service and writes its local filter configuration. It does not alter Windows privacy settings or collect credentials.
+The DualLink interface does not run as administrator. Windows asks for approval only after the user selects **Enable boost**; a separate local helper then controls the packet-filter service and writes its temporary filter configuration. The helper exits with the interface and does not alter Windows privacy settings or collect account credentials.
 
 ## Removal
 

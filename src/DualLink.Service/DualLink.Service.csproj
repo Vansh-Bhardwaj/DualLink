@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <!-- Publish settings are supplied by the release pipeline. Keeping the
+         development project framework-dependent avoids requiring a runtime pack
+         during local source builds. -->
+    <PublishSingleFile>false</PublishSingleFile>
+    <PublishTrimmed>false</PublishTrimmed>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AssemblyName>DualLink.Service</AssemblyName>
+    <RootNamespace>DualLink.Service</RootNamespace>
+    <DebugType>embedded</DebugType>
+    <Authors>DualLink</Authors>
+    <Product>DualLink Privileged Service</Product>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\DualLink.Service.Protocol\DualLink.Service.Protocol.csproj" />
+    <!-- The service owns the privileged runtime. These implementation files are linked
+         temporarily so the unelevated WPF project can migrate to a shared core assembly
+         without changing the v3 public contracts in this slice. -->
+    <Compile Include="..\DualLink\Models.cs" Link="Backend\Models.cs" />
+    <Compile Include="..\DualLink\Routing.cs" Link="Backend\Routing.cs" />
+    <Compile Include="..\DualLink\TransferRateLimiter.cs" Link="Backend\TransferRateLimiter.cs" />
+    <Compile Include="..\DualLink\Socks5Balancer.cs" Link="Backend\Socks5Balancer.cs" />
+    <Compile Include="..\DualLink\ProxiFyreManager.cs" Link="Backend\ProxiFyreManager.cs" />
+  </ItemGroup>
+</Project>

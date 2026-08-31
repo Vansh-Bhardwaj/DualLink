@@ -189,4 +189,5 @@ public sealed class BoostSessionState
     public bool ServiceWasRunning { get; set; }
     public string ConfigPath { get; set; } = string.Empty;
     public string BackupPath { get; set; } = string.Empty;
+    public string? ConfigSecuritySddl { get; set; }
 }

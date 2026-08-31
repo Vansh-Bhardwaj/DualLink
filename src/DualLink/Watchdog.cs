@@ -14,7 +14,7 @@ public static class Watchdog
         }
         catch { }
 
-        var stateDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DualLink");
+        var stateDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "DualLink", "Recovery");
         var sessionPath = Path.Combine(stateDirectory, "active-session.json");
         var expectedConfigPath = Path.GetFullPath(Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
@@ -39,6 +39,8 @@ public static class Watchdog
         {
             if (state.ConfigExisted && File.Exists(expectedBackupPath)) File.Copy(expectedBackupPath, expectedConfigPath, true);
             else if (!state.ConfigExisted && File.Exists(expectedConfigPath)) File.Delete(expectedConfigPath);
+            if (state.ConfigExisted && File.Exists(expectedConfigPath) && !string.IsNullOrWhiteSpace(state.ConfigSecuritySddl))
+                RestoreAccessSddl(expectedConfigPath, state.ConfigSecuritySddl);
             if (state.ServiceWasRunning)
                 await ProxiFyreManager.RunProcessAsync("sc.exe", $"start {ProxiFyreManager.ServiceName}", false);
             TryDelete(expectedBackupPath);
@@ -58,5 +60,12 @@ public static class Watchdog
     {
         try { File.Delete(path); }
         catch { }
+    }
+
+    private static void RestoreAccessSddl(string path, string sddl)
+    {
+        var security = new System.Security.AccessControl.FileSecurity();
+        security.SetSecurityDescriptorSddlForm(sddl, System.Security.AccessControl.AccessControlSections.Access);
+        new FileInfo(path).SetAccessControl(security);
     }
 }
