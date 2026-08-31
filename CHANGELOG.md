@@ -2,6 +2,12 @@
 
 All notable DualLink changes are recorded here. Versions follow semantic versioning.
 
+## 4.0.0-beta.1 - 2026-08-31
+
+- Promoted the completed DualLink 4 architecture to beta after full routing, security, recovery, accessibility, packaging, and release-asset validation.
+- Added bounded service IPC, protected machine-wide recovery state, verified stop/start transitions, and watchdog-safe failure reporting.
+- Confirmed live manual speed changes, Wi-Fi-only routing, route churn, application target updates, and 120-connection cleanup under regression tests.
+
 ## 4.0.0-alpha.3 - 2026-08-31
 
 - Moved packet-filter control, local routing, and recovery into a short-lived elevated helper while the desktop interface now runs with ordinary user permissions.
