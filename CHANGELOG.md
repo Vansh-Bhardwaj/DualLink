@@ -2,6 +2,15 @@
 
 All notable DualLink changes are recorded here. Versions follow semantic versioning.
 
+## 4.0.0 - 2026-08-31
+
+- Runs the desktop interface with ordinary user permissions and elevates only the short-lived local network helper after **Enable boost** is selected.
+- Applies per-route speed changes live, supports either connection by itself, and keeps Smart, Balanced, and Backup routing responsive as adapters change.
+- Protects recovery state with machine-wide ACLs, bounded IPC, exact client-process checks, verified service transitions, and an independent fail-safe watchdog.
+- Reduces interface stalls, routing allocations, background process work, and stale limiter waits.
+- Finishes the v4 interface with embedded Inter typography, keyboard focus, accessible control sizes, higher-contrast dropdowns, full-name tooltips, and compact-window support.
+- Adds explicit local alpha, beta, release-candidate, and stable build gates with an offline installer, SPDX SBOM, SHA-256 checksums, and exactly three project-owned release files.
+
 ## 4.0.0-beta.1 - 2026-08-31
 
 - Promoted the completed DualLink 4 architecture to beta after full routing, security, recovery, accessibility, packaging, and release-asset validation.
