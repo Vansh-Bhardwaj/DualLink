@@ -235,7 +235,12 @@ $servicePath = Join-Path $servicePublishDirectory 'DualLink.Service.exe'
 Assert-File $servicePath
 Copy-Item -LiteralPath $servicePath -Destination (Join-Path $publishDirectory 'DualLink.Service.exe') -Force
 
-& (Join-Path $repoRoot 'tools\Generate-Sbom.ps1') -Version $metadata.Informational -ApplicationPath (Join-Path $publishDirectory 'DualLink.exe') -AdditionalApplicationPath $servicePath -OutputPath $sbomPath
+$runtimeConfigPath = Join-Path $repoRoot 'src\DualLink\bin\Release\net10.0-windows\win-x64\DualLink.runtimeconfig.json'
+Assert-File $runtimeConfigPath
+$runtimeConfig = Get-Content -LiteralPath $runtimeConfigPath -Raw | ConvertFrom-Json
+$runtimeVersion = [string]($runtimeConfig.runtimeOptions.includedFrameworks | Where-Object name -eq 'Microsoft.NETCore.App' | Select-Object -First 1).version
+if ($runtimeVersion -notmatch '^\d+\.\d+\.\d+$') { throw 'Published runtime version was not found.' }
+& (Join-Path $repoRoot 'tools\Generate-Sbom.ps1') -Version $metadata.Informational -ApplicationPath (Join-Path $publishDirectory 'DualLink.exe') -AdditionalApplicationPath @($servicePath, $watchdogPath) -DotNetRuntimeVersion $runtimeVersion -OutputPath $sbomPath
 if ($LASTEXITCODE -ne 0) { throw 'SBOM generation failed.' }
 
 if (-not $SkipInstaller) {

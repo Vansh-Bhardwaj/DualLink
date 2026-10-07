@@ -2,6 +2,7 @@
 param(
     [Parameter(Mandatory)] [string]$Version,
     [Parameter(Mandatory)] [string]$ApplicationPath,
+    [ValidatePattern('^\d+\.\d+\.\d+$')] [string]$DotNetRuntimeVersion = '10.0.12',
     [string[]]$AdditionalApplicationPath = @(),
     [Parameter(Mandatory)] [string]$OutputPath
 )
@@ -62,8 +63,8 @@ $document = [ordered]@{
             copyrightText = 'Copyright NT Kernel Resources / WireSock'
         },
         [ordered]@{
-            name = 'Microsoft .NET Runtime'; SPDXID = 'SPDXRef-Package-DotNetRuntime'; versionInfo = '10.0.11'
-            downloadLocation = 'https://github.com/dotnet/runtime/tree/v10.0.11'; filesAnalyzed = $false
+            name = 'Microsoft .NET Runtime'; SPDXID = 'SPDXRef-Package-DotNetRuntime'; versionInfo = $DotNetRuntimeVersion
+            downloadLocation = "https://github.com/dotnet/runtime/tree/v$DotNetRuntimeVersion"; filesAnalyzed = $false
             licenseConcluded = 'MIT'; licenseDeclared = 'MIT'; copyrightText = 'Copyright .NET Foundation and contributors'
         },
         [ordered]@{

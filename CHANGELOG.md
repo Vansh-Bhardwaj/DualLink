@@ -2,7 +2,7 @@
 
 All notable DualLink changes are recorded here. Versions follow semantic versioning.
 
-## Unreleased
+## 4.1.0 - 2026-10-07
 
 - Replaces the dashboard with a compact links, speed, and apps view, short labels, real executable icons, and on-demand settings.
 - Scans Windows registrations, known install folders, and running supported apps; absent launchers no longer appear by default. Retains custom apps and provides Scan and Add.

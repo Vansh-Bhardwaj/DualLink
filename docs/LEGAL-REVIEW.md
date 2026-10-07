@@ -1,6 +1,6 @@
 # Release compliance review
 
-Reviewed: 2026-08-30
+Reviewed: 2026-10-07
 
 This checklist documents the release posture; it is not legal advice.
 
@@ -16,7 +16,7 @@ DualLink source code is released under AGPL-3.0-only. This aligns the public pro
 | ProxiFyre | 2.5.0 | Unmodified MSI; AGPL license and exact source link included |
 | Windows Packet Filter driver | 3.6.2.1 | Unmodified MSI; personal/educational/nonprofit limitation disclosed |
 | ndisapi source/interface | 3.6.2 | MIT notice included |
-| .NET Runtime | 10.0.11 | MIT license and complete third-party notices included |
+| .NET Runtime | 10.0.12 | MIT license and complete third-party notices included |
 | Visual C++ Redistributable | 14.44.35211.0 | Unmodified redistributable; Microsoft terms linked |
 | Inter | 4.1 | Embedded static fonts; SIL Open Font License 1.1 included |
 | Inno Setup | 6.7.3 build tool | Not redistributed; noncommercial release posture disclosed |

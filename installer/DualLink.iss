@@ -1,9 +1,9 @@
 #define AppName "DualLink"
 #ifndef AppVersion
-  #define AppVersion "4.0.0"
+  #define AppVersion "4.1.0"
 #endif
 #ifndef NumericVersion
-  #define NumericVersion "4.0.0"
+  #define NumericVersion "4.1.0"
 #endif
 #ifndef ReleaseStage
   #define ReleaseStage "Stable"

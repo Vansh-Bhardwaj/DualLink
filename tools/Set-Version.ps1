@@ -74,8 +74,8 @@ foreach ($entry in $replacements.GetEnumerator()) {
 }
 
 if ($PSCmdlet.ShouldProcess("$versionPath and $propsPath", "set DualLink version to $informational")) {
-    "$Version`n" | Set-Content -LiteralPath $versionPath -Encoding utf8
-    $propsContent | Set-Content -LiteralPath $propsPath -Encoding utf8
+    $Version | Set-Content -LiteralPath $versionPath -Encoding utf8
+    ($propsContent.TrimEnd() + "`n") | Set-Content -LiteralPath $propsPath -Encoding utf8 -NoNewline
 }
 
 Write-Host "DualLink version: $informational"

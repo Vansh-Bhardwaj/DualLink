@@ -29,11 +29,11 @@ The offline installer contains the unmodified x64 driver MSI. The MIT license of
 
 The complete MIT license is installed as `licenses/Windows-Packet-Filter-MIT.txt`.
 
-## Microsoft .NET Runtime 10.0.11
+## Microsoft .NET Runtime 10.0.12
 
 DualLink's self-contained executable includes the Microsoft .NET Runtime. The runtime is MIT-licensed and contains third-party components under their respective terms.
 
-- Source code: https://github.com/dotnet/runtime/tree/v10.0.11
+- Source code: https://github.com/dotnet/runtime/tree/v10.0.12
 - License: `licenses/dotnet-runtime-MIT.txt`
 - Complete notices: `licenses/dotnet-runtime-THIRD-PARTY-NOTICES.txt`
 

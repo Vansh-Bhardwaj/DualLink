@@ -1,6 +1,6 @@
 # DualLink changes and validation — 7 October 2026
 
-The audit led to changes in the interface, app discovery, controller, shared routing core, helper, tests, and documentation. This is an unreleased working-tree change; version 4.0.0 has not been republished.
+The audit led to changes in the interface, app discovery, controller, shared routing core, helper, tests, and documentation. These changes are packaged as stable version 4.1.0; version 4.0.0 is not being republished.
 
 ## Delivered behavior
 
@@ -38,10 +38,10 @@ Run it again with:
 dotnet run --project tests/DualLink.Benchmarks -c Release -- docs/performance-baseline.json
 ```
 
-## Live validation still required before a release
+## Live validation and remaining coverage
 
-The installed ProxiFyre service was queried read-only and was stopped. It was not started or reconfigured during this work. The automated filter operations are simulated; the UI tests use a fake helper. No live selected-app internet download, two independent internet links, driver crash, actual watchdog restoration, sleep/wake cycle, multi-hour transfer, installer update/uninstall, or launcher sign-in was exercised.
+During the implementation audit the installed ProxiFyre service was queried read-only and was stopped. The automated filter operations are simulated; the UI tests use a fake helper. After installation, the user supplied a live screenshot with DualLink On, Edge selected, both Ethernet and Wi-Fi in use, and nonzero traffic totals on each route. That records a live two-link session; it does not establish a controlled speed comparison or broad app compatibility.
 
-Before release, record a compatibility matrix for the detected apps with Both/Safe/Backup, sustained direct/single-link/dual-link downloads, actual filter and helper crashes, network loss/reconnect, IPv4 fallback, and clean stop/exit restoration. App discovery is not proof that a server opens enough connections to benefit from both links. Precise per-app throughput is also not implemented: current counters remain per route.
+Remaining coverage includes a compatibility matrix for detected apps in Both/Safe/Backup, sustained direct/single-link/dual-link comparisons, actual filter and helper crashes, network loss/reconnect, sleep/wake, IPv4 fallback, clean stop/exit restoration, multi-hour transfers, and launcher sign-in. The user requested stable publication after their local test; these remaining scenarios are disclosed rather than described as passed. App discovery is not proof that a server opens enough connections to benefit from both links. Precise per-app throughput is also not implemented: current counters remain per route.
 
 The window still owns substantial controller code. The recovery policy and routing backend are shared/testable, but a complete view-model/controller extraction remains a future architectural change.
