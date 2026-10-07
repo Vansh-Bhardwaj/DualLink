@@ -1,77 +1,38 @@
 # DualLink interface contract
 
-## Product and task
+## User and task
 
-DualLink is a compact network-control utility for Windows users downloading large games and files through two independent links. The primary task is to choose applications and turn distribution on or off with immediate confidence that both links are healthy.
+A Windows user should be able to pick their apps, choose links, and press Start without knowing network terminology. Use short words that name actions. Keep explanations, marketing, protocol details, and internal implementation out of the main screen.
 
-## Platform design synthesis
+## Main view
 
-DualLink combines the useful conventions of Apple, Google, and Microsoft without copying proprietary assets or pretending to belong to another platform.
+- A 272 px link pane shows Ethernet and Wi-Fi, their current state, speed, and downloaded bytes. Use only and Use both are direct actions.
+- The main pane shows confirmed session state beside Start/Stop, a large speed value, a one-minute graph, and evidence of which links contributed.
+- Show Device speed while stopped and App speed while routing. Clear graph history when switching scope. Never present an open process as evidence of routed traffic.
+- Apps come from supported installations on this device, with their executable icons. Do not pre-fill missing launchers. Preserve custom apps, selected choices, and Add. Scan refreshes detection.
+- App rows contain an icon, name, Open/Closed state, and switch. No app descriptions or promotional subtitles. Use a quiet initial only if an icon cannot be read.
+- Optional routing mode, speed limits, tray preferences, and updates belong in Settings. Diagnostics and technical activity belong in Details.
 
-- Apple contributes restraint, hierarchy, alignment, and shallow material depth. Surfaces should feel calm, with one clear action at a time.
-- Google contributes direct language, legible state changes, predictable components, and accessible contrast. Every state should be understandable without guessing.
-- Microsoft contributes native Windows conventions, keyboard navigation, visible focus, tray behavior, DPI resilience, and automation names.
-- Inter remains the product typeface. SF Pro and Google Sans are proprietary and are not redistributed. The window keeps standard Windows actions and does not imitate macOS chrome.
+## Visual rules
 
-## Type scale
+Use embedded Inter, graphite surfaces, hairline separators, and one restrained indigo action color. Amber identifies Ethernet and cyan identifies Wi-Fi. Use spacing and type hierarchy rather than nested cards. App names are 14 px; speed is 40 px; supporting labels are 12 px. Preserve visible keyboard focus, 34 px control targets, contrast, automation names, and hover/pressed/disabled states.
 
-- 30 px Medium: live throughput only; use tabular numerals.
-- 20 px Medium: page and inspector titles.
-- 13 px Medium: application names and important labels.
-- 12.5 px Regular: body and control text.
-- 12 px Regular: supporting text, with an 18 px line height.
-- SemiBold is reserved for state and primary action emphasis. Uppercase labels are not used.
-- Text uses normal sentence case, consistent tracking, and no decorative all-caps eyebrow labels. Long names truncate only when space is limited and remain available in a tooltip or accessible name.
+The default window is 1000×680 and the minimum is 860×580. App lists virtualize and scroll. Drawers are 380 px wide, have a subdued backdrop, contain keyboard navigation, and close with Escape or a click outside. Keep the close control visible even when drawer content scrolls.
 
-## Visual direction: quiet network instrument
+## Required states
 
-- Use one graphite content plane and one subtly lighter navigation/utility plane.
-- Reserve translucent or raised material for controls and transient drawers, not every content row.
-- Eliminate card nesting, uppercase eyebrow labels, neon outlines, and oversized danger actions.
-- Use the embedded Inter type family for its screen-focused proportions and high small-size legibility. It provides the calm neo-grotesque character associated with contemporary Apple and Google interfaces without redistributing proprietary SF Pro or Google Sans assets.
-- Prefer Regular for prose, Medium for labels and application names, and SemiBold only for exceptional emphasis. Avoid walls of bold white text.
-- Use a restrained indigo action color. Ethernet amber and Wi-Fi cyan identify physical links only.
-- Use hairline separators and grouped list rows instead of bordered cards.
-- Use geometry-based monochrome icons with a consistent 16-pixel optical size.
-- Use 34 px minimum pointer targets for desktop controls and a visible two-pixel indigo focus ring for keyboard users. Hover, pressed, disabled, and selected states must remain distinct without relying on color alone.
-
-## Layout and reading order
-
-1. Window identity and live state.
-2. Combined throughput and the two contributing links.
-3. Applications participating in distribution.
-4. One compact Boost/Restore control.
-5. Diagnostics and preferences in on-demand inspectors.
-
-The left utility pane remains 292 pixels wide. The application list receives all remaining width. At minimum width, labels truncate and the list scrolls; controls do not shrink below their target size.
-
-## Components
-
-- **Status capsule:** live dot, plain-language state, no border when idle.
-- **Link row:** adapter selector, speed, small proportional weight stepper, and an Only command. The selector shows the friendly adapter or network name first; technical details are secondary.
-- **Application row:** colored identity mark, name, description, running state, and a switch at the trailing edge.
-- **Boost control:** compact two-state button. Red is reserved for Restore while active.
-- **Inspector:** right-edge sheet for plain-language diagnostics or settings. Technical activity is hidden behind an explicit secondary control.
-
-## State requirements
-
-- Default routing: neutral state and Boost action.
-- Armed/waiting: amber state with target switches retained.
-- Boosting: green state, live combined speed, session count.
-- Single-link mode: active state names the remaining link.
-- Recovering: amber state and automatic service restart.
-- Missing filter or adapters: explicit non-green state and actionable diagnostics.
-- Running versus idle applications: quiet status text; selection remains independent.
-- Empty and unavailable lists: explain what is missing and offer one next action, without exposing raw diagnostics by default.
+| State | Main action / evidence |
+|---|---|
+| Off | Start, Device speed |
+| Waiting for app | Stop, selected apps retained |
+| Waiting for traffic | Stop, no invented contribution |
+| On | Stop, confirmed filter/session, link byte counts |
+| Ethernet only / Wi-Fi only | Remaining link named; disabled link says Off |
+| Reconnecting | Bounded recovery; failed restore retains Stop |
+| Couldn't start / Couldn't stop | One short next action |
+| Scanning / empty apps | Scanning… / No apps found, Scan and Add |
+| Rejected settings | Last confirmed mode and limits restored, Change failed |
 
 ## Finish gate
 
-- No clipped text at 940×620 or the 1080×700 reference size.
-- Text and controls meet WCAG AA contrast against their immediate surfaces.
-- Every interactive control has hover, pressed, disabled, and keyboard-focus feedback.
-- No functional information relies on color alone.
-- Details and settings remain hidden until requested.
-- Diagnostic results lead with an outcome and action; IP addresses and technical activity are never the default surface.
-- Screenshot review must show a clear primary action and no repeated decorative container treatment.
-- The app must remain recognizably Windows: standard window actions, visible keyboard focus, and no imitation macOS chrome.
-- Automation names and help text describe the action in plain language. Focus order follows the reading order: title bar, connections, applications, then boost.
+Render and inspect main, settings, expanded limits, details, app picker, Wi-Fi, and idle/waiting/error/single-link/empty states at minimum size. Verify installed icons on the actual device. Keep synthetic screenshots labelled Preview. Test real window reconciliation and failed-change rollback against a fake helper, then run the shared routing regressions. Physical driver recovery, sleep/wake, long downloads, and actual launcher compatibility require live validation; screenshots and loopback tests cannot establish those results.

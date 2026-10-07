@@ -2,6 +2,11 @@ namespace DualLink;
 
 public static class ApplicationProfileDiscovery
 {
+    internal static bool IsRunning(AppProfile profile, IReadOnlySet<string> names, IReadOnlySet<string> paths,
+        IReadOnlySet<string> unreadableNames) => profile.ExecutablePaths.Count == 0
+        ? profile.Processes.Any(names.Contains)
+        : profile.ExecutablePaths.Any(paths.Contains) || profile.Processes.Any(unreadableNames.Contains);
+
     public static AppProfile? FindJDownloader()
     {
         var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);

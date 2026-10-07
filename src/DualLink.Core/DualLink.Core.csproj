@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>DualLink</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\DualLink.Service.Protocol\DualLink.Service.Protocol.csproj" />
+    <Compile Include="..\DualLink\Routing.cs" Link="Routing.cs" />
+    <Compile Include="..\DualLink\Socks5Balancer.cs" Link="Socks5Balancer.cs" />
+    <Compile Include="..\DualLink\TransferRateLimiter.cs" Link="TransferRateLimiter.cs" />
+    <Compile Include="..\DualLink\ProxiFyreManager.cs" Link="ProxiFyreManager.cs" />
+    <Compile Include="..\DualLink\BoostHealthMonitor.cs" Link="BoostHealthMonitor.cs" />
+  </ItemGroup>
+</Project>

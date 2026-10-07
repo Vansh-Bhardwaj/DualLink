@@ -203,6 +203,7 @@ Invoke-DotNet @('restore', $appProject, '--configfile', (Join-Path $repoRoot 'Nu
 Invoke-DotNet @('run', '--project', (Join-Path $repoRoot 'tools\IconMaker\IconMaker.csproj'), '-c', 'Release', '--', $iconPath, $iconPreviewPath) 'Icon generation failed.'
 if (-not $SkipTests) {
     Invoke-DotNet @('run', '--project', $testProject, '-c', 'Release') 'Integration tests failed.'
+    Invoke-DotNet @('run', '--project', (Join-Path $repoRoot 'tests\DualLink.UiTests\DualLink.UiTests.csproj'), '-c', 'Release') 'Window recovery tests failed.'
 } else {
     Write-Warning 'Integration tests were skipped. This output is not eligible for a stable GitHub Release.'
 }

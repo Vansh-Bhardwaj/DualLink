@@ -27,6 +27,7 @@ public sealed class Socks5Balancer : IAsyncDisposable
     private readonly int _passwordLength;
     private readonly CompatibilityGuardOptions _compatibilityGuard;
     private readonly TimeProvider _timeProvider;
+    private readonly Func<string, CancellationToken, Task<IPAddress[]>> _resolveHost;
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
     private List<RouteState> _routes = new();
@@ -51,7 +52,8 @@ public sealed class Socks5Balancer : IAsyncDisposable
         Action<string> log,
         ProxyCredentials credentials,
         CompatibilityGuardOptions? compatibilityGuard = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        Func<string, CancellationToken, Task<IPAddress[]>>? resolveHost = null)
     {
         if (port is < 0 or > 65535) throw new ArgumentOutOfRangeException(nameof(port));
         ArgumentNullException.ThrowIfNull(log);
@@ -70,6 +72,7 @@ public sealed class Socks5Balancer : IAsyncDisposable
         if (_compatibilityGuard.MaximumDestinations < 1)
             throw new ArgumentOutOfRangeException(nameof(compatibilityGuard), "At least one remembered destination is required.");
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _resolveHost = resolveHost ?? ((host, token) => Dns.GetHostAddressesAsync(host, token));
     }
 
     public int ActiveConnections => Volatile.Read(ref _activeConnections);
@@ -250,7 +253,7 @@ public sealed class Socks5Balancer : IAsyncDisposable
 
             var suppressed = Interlocked.Exchange(ref _suppressedConnectionLogs, 0);
             var suffix = suppressed == 0 ? string.Empty : $" (+{suppressed} more sessions)";
-            _log($"{source} → {host}:{port}{suffix}");
+            _log($"Connection opened{suffix}");
             return;
         }
     }
@@ -335,7 +338,7 @@ public sealed class Socks5Balancer : IAsyncDisposable
                 LogConnection(source, host, port);
 
                 using var outboundStream = new NetworkStream(outbound, ownsSocket: false);
-                await RelayBidirectionallyAsync(inbound, outboundStream, routeLease, token);
+                await RelayBidirectionallyAsync(inbound, outboundStream, client.Client, outbound, routeLease, token);
             }
             catch (OperationCanceledException) { }
             catch (Exception ex)
@@ -353,7 +356,8 @@ public sealed class Socks5Balancer : IAsyncDisposable
         }
     }
 
-    private async Task CopyThrottledAsync(Stream source, Stream destination, RouteLease route, bool isDownload, CancellationToken token)
+    private async Task CopyThrottledAsync(Stream source, Stream destination, RouteLease route, bool isDownload,
+        CancellationToken token, Action? onEnd = null)
     {
         var buffer = ArrayPool<byte>.Shared.Rent(64 * 1024);
         try
@@ -361,7 +365,7 @@ public sealed class Socks5Balancer : IAsyncDisposable
             while (true)
             {
                 var count = await source.ReadAsync(buffer.AsMemory(0, buffer.Length), token);
-                if (count == 0) break;
+                if (count == 0) { onEnd?.Invoke(); break; }
                 await route.ThrottleAsync(count, token);
                 await destination.WriteAsync(buffer.AsMemory(0, count), token);
                 if (isDownload) route.RecordDownload(count);
@@ -371,17 +375,24 @@ public sealed class Socks5Balancer : IAsyncDisposable
         finally { ArrayPool<byte>.Shared.Return(buffer); }
     }
 
-    private async Task RelayBidirectionallyAsync(Stream inbound, Stream outbound, RouteLease route, CancellationToken token)
+    private async Task RelayBidirectionallyAsync(Stream inbound, Stream outbound, Socket inboundSocket,
+        Socket outboundSocket, RouteLease route, CancellationToken token)
     {
         using var relayCancellation = CancellationTokenSource.CreateLinkedTokenSource(token);
-        var upload = CopyThrottledAsync(inbound, outbound, route, false, relayCancellation.Token);
-        var download = CopyThrottledAsync(outbound, inbound, route, true, relayCancellation.Token);
+        var upload = CopyThrottledAsync(inbound, outbound, route, false, relayCancellation.Token,
+            () => ShutdownSend(outboundSocket));
+        var download = CopyThrottledAsync(outbound, inbound, route, true, relayCancellation.Token,
+            () => ShutdownSend(inboundSocket));
         var completed = await Task.WhenAny(upload, download);
 
         Exception? relayFailure = null;
         try
         {
             await completed;
+            // A request-side half-close must still receive the server's response.
+            // Once the response ends, stop an idle request relay immediately.
+            if (ReferenceEquals(completed, upload))
+                await download;
         }
         catch (Exception ex)
         {
@@ -403,13 +414,32 @@ public sealed class Socks5Balancer : IAsyncDisposable
             System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(relayFailure).Throw();
     }
 
+    private static void ShutdownSend(Socket socket)
+    {
+        try { socket.Shutdown(SocketShutdown.Send); }
+        catch (SocketException) { }
+        catch (ObjectDisposedException) { }
+    }
+
     private async Task<(Socket Socket, IPAddress Source, RouteLease Lease)> ConnectBalancedAsync(string host, int port, CancellationToken token)
     {
         var addresses = IPAddress.TryParse(host, out var literal)
             ? new[] { literal }
-            : await Dns.GetHostAddressesAsync(host, token);
-        var destination = addresses.FirstOrDefault(x => x.AddressFamily == AddressFamily.InterNetwork)
-            ?? throw new SocketException((int)SocketError.HostNotFound);
+            : await _resolveHost(host, token);
+        var destinations = addresses.Where(x => x.AddressFamily == AddressFamily.InterNetwork).Distinct().Take(8).ToArray();
+        if (destinations.Length == 0) throw new SocketException((int)SocketError.HostNotFound);
+        Exception? failure = null;
+        foreach (var destination in destinations)
+        {
+            try { return await ConnectDestinationAsync(destination, port, token); }
+            catch (IOException ex) { failure = ex; token.ThrowIfCancellationRequested(); }
+        }
+        throw new IOException("No destination address could be reached.", failure);
+    }
+
+    private async Task<(Socket Socket, IPAddress Source, RouteLease Lease)> ConnectDestinationAsync(
+        IPAddress destination, int port, CancellationToken token)
+    {
 
         var destinationKey = $"{destination}:{port}";
         Exception? last = null;
@@ -434,7 +464,7 @@ public sealed class Socks5Balancer : IAsyncDisposable
                 {
                     socket.Bind(new IPEndPoint(source, 0));
                     using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
-                    timeout.CancelAfter(TimeSpan.FromSeconds(12));
+                    timeout.CancelAfter(TimeSpan.FromSeconds(4));
                     await socket.ConnectAsync(new IPEndPoint(destination, port), timeout.Token);
                     route.MarkSuccess(Stopwatch.GetElapsedTime(connectStarted).TotalMilliseconds);
                     RememberDestination(destinationKey, route);
@@ -719,7 +749,7 @@ public sealed class Socks5Balancer : IAsyncDisposable
         }
         public long RetirementSequence => Volatile.Read(ref _retirementSequence);
         public int SpeedLimitMbps => _speedLimiter.MegabitsPerSecond;
-        public int ConnectionShare => SpeedLimitMbps <= 0 ? 10 : Math.Clamp((int)Math.Ceiling(SpeedLimitMbps / 50d), 1, 10);
+        public int ConnectionShare => Weight;
         public int ActiveConnections => Volatile.Read(ref _activeConnections);
         public int Failures => Volatile.Read(ref _failures);
         public DateTime UnhealthyUntilUtc => new(Volatile.Read(ref _unhealthyUntilTicks), DateTimeKind.Utc);

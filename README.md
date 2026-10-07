@@ -9,17 +9,18 @@ DualLink applies two independent internet links to new TCP connections made by s
 
 Download the latest offline installer from [GitHub Releases](https://github.com/Vansh-Bhardwaj/DualLink/releases/latest). It includes the required runtime, local filter, and driver. Verify the included `SHA256SUMS.txt` before running it.
 
-![DualLink 4 with live per-route speed controls and application-scoped routing](docs/screenshots/duallink-4.0.png)
+![DualLink's compact dashboard with supported apps and their installed icons. Traffic values are preview data.](docs/screenshots/duallink-current.png)
 
 ## How it works
 
 ![Selected applications pass through DualLink, which distributes new connections between Ethernet and Wi-Fi](docs/images/how-it-works.svg)
 
-Normal Windows routing stays unchanged for everything you do not select. For selected apps, each new TCP connection is assigned to Ethernet or Wi-Fi. **Smart** favors the freer healthy link, **Balanced** follows the route speeds you choose, and **Backup** keeps one connection in reserve.
+Normal Windows routing stays unchanged for apps you do not select. For selected apps, each new IPv4 TCP connection is assigned to Ethernet or Wi-Fi. **Both** shares new connections equally, **Safe** keeps destinations on a consistent link after a short startup period, and **Backup** uses Ethernet first. Speed limits are independent of the mode.
 
 ## Features
 
-- Independent live speed control for Ethernet and Wi-Fi, including **Off**, **Only**, and **Full speed**.
+- Independent speed limits for Ethernet and Wi-Fi, with **Use only**, **Use both**, and **Full speed**.
+- Automatic detection of installed supported apps, with icons extracted from their executables. Missing launchers stay out of the list.
 - App-scoped routing for game launchers, browsers, download managers, and custom executables.
 - Nearby Wi-Fi discovery with direct switching to saved Windows profiles.
 - Automatic detection of supported multi-process download managers and their background download engines.
@@ -30,10 +31,10 @@ Normal Windows routing stays unchanged for everything you do not select. For sel
 ## Everyday use
 
 1. Connect Ethernet and Wi-Fi/hotspot.
-2. Pick each connection. Wi-Fi choices show the connected network or hotspot name; **Networks** lists nearby SSIDs and connects saved Windows profiles directly.
-3. Choose the applications and select **Enable boost**.
-4. Choose a speed for each route, or select **Full speed**. A manual choice switches to **Balanced** automatically. Changes apply live; **Off** stops new connections on that route and **Only** sends new connections through it.
-5. Close the window to keep DualLink in the notification area. Hover for live combined speed, connection quality, and session context, or right-click for the compact DualLink status menu. Use **Exit and restore** to return the filter to its previous configuration.
+2. Pick each connection. **Networks** opens nearby Wi-Fi choices.
+3. Pick apps found on your PC and select **Start**. **Scan** checks again; **Add** accepts another running app or executable.
+4. Use **Use only** or **Use both** to choose links. Optional limits and routing mode live in **Settings**. A limit changes bandwidth without changing the mode. Disabled links stop receiving new connections while existing transfers finish.
+5. **Stop** restores the previous filter configuration. Closing keeps DualLink in the tray when **Keep in tray** is enabled.
 
 For one large file, use multiple chunks when the host supports them so separate connections can use both routes. A single ordinary TCP connection cannot be split across two internet links without a remote bonding endpoint.
 
@@ -42,11 +43,11 @@ The Details drawer checks both routes, DNS, route independence, and filtering in
 <details>
 <summary>Settings and diagnostics stay out of the way until requested</summary>
 
-![DualLink settings inspector](docs/images/settings.png)
+![DualLink settings](docs/screenshots/duallink-current-settings.png)
 
-![DualLink connection details](docs/screenshots/duallink-3.0-details.png)
+![DualLink connection details](docs/screenshots/duallink-current-details.png)
 
-![DualLink running application picker](docs/screenshots/duallink-3.0-add-application.png)
+![DualLink app picker](docs/screenshots/duallink-current-add.png)
 
 </details>
 
@@ -57,6 +58,12 @@ DualLink only filters processes the user selects. The desktop interface runs wit
 ## Limits
 
 One TCP connection cannot be split across two links without a remote aggregation server. The speed benefit comes from distributing the multiple connections opened by launchers and browsers. Live game traffic is intentionally not a target.
+
+DualLink routes IPv4 TCP. Its explicit filter rule blocks selected-app IPv6 so applications can fall back to IPv4; an IPv6-only destination cannot work through this mode. UDP, including QUIC and most live game traffic, is outside the routed path. **Open** means the app process exists, not that it is sending routed traffic. Link byte counts are the evidence of actual use.
+
+The detection catalog includes Steam, Epic Games, Riot Games, Battle.net, EA app, JDownloader, Chrome, Edge, Firefox, Brave, Opera, Internet Download Manager, and Free Download Manager. Registrations, known folders, or a running executable must provide an existing path. Portable or unusual installations can be added manually. Detection is not a certification that every app version or server benefits from dual-link routing.
+
+See the [project audit](docs/PROJECT-AUDIT-2026-10-07.md) and [implementation and validation record](docs/IMPLEMENTATION-2026-10-07.md) for the current fixes, benchmark, and outstanding live validation.
 
 Upload results may combine less visibly than downloads. Speed tests often reuse a small number of long-lived connections for upload, and mobile hotspots usually have much lower upstream capacity. DualLink reports live upload use per route so you can see which links are contributing.
 

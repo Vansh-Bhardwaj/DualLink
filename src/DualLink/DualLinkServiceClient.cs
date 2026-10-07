@@ -23,6 +23,7 @@ public sealed class DualLinkServiceClient : IAsyncDisposable
     private readonly SemaphoreSlim _requestGate = new(1, 1);
     private readonly FrameReader _frameReader = new();
     private int _disposeState;
+    private int _faulted;
 
     private DualLinkServiceClient(string pipeName, NamedPipeClientStream pipe, Process? ownedProcess)
     {
@@ -33,6 +34,7 @@ public sealed class DualLinkServiceClient : IAsyncDisposable
     }
 
     public string PipeName => _pipeName;
+    public bool IsConnected => Volatile.Read(ref _disposeState) == 0 && Volatile.Read(ref _faulted) == 0 && _pipe.IsConnected;
 
     public static async Task<DualLinkServiceClient> ConnectAsync(
         string pipeName,
@@ -147,6 +149,7 @@ public sealed class DualLinkServiceClient : IAsyncDisposable
     private async Task<T> SendAsync<T>(string command, object? payload, CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposeState) != 0, this);
+        if (Volatile.Read(ref _faulted) != 0) throw new DualLinkServiceException("The local service disconnected.");
         using var requestDeadline = CreateDeadline(cancellationToken, GetRequestDeadline(command));
         var gateAcquired = false;
         try
@@ -154,16 +157,34 @@ public sealed class DualLinkServiceClient : IAsyncDisposable
             await _requestGate.WaitAsync(requestDeadline.Token).ConfigureAwait(false);
             gateAcquired = true;
             ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposeState) != 0, this);
+            if (Volatile.Read(ref _faulted) != 0) throw new DualLinkServiceException("The local service disconnected.");
             return await SendCoreAsync<T>(command, payload, requestDeadline.Token).ConfigureAwait(false);
         }
         catch (JsonException exception)
         {
+            InvalidateConnection();
             throw new DualLinkServiceException("The local service returned an invalid response.", exception);
+        }
+        catch (IOException exception)
+        {
+            InvalidateConnection();
+            throw new DualLinkServiceException("The local service disconnected.", exception);
+        }
+        catch (TimeoutException exception)
+        {
+            InvalidateConnection();
+            throw new DualLinkServiceException("The local service returned an incomplete response.", exception);
         }
         catch (OperationCanceledException) when
             (requestDeadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
+            if (gateAcquired) InvalidateConnection();
             throw new DualLinkServiceException("The local service did not respond in time.");
+        }
+        catch (OperationCanceledException)
+        {
+            if (gateAcquired) InvalidateConnection();
+            throw;
         }
         finally
         {
@@ -186,17 +207,29 @@ public sealed class DualLinkServiceClient : IAsyncDisposable
             await _stream.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
             await _stream.FlushAsync(cancellationToken).ConfigureAwait(false);
             var responseLine = await _frameReader.ReadAsync(_stream, cancellationToken).ConfigureAwait(false)
-                ?? throw new DualLinkServiceException("The local service disconnected.");
+                ?? throw ProtocolError("The local service disconnected.");
             var response = JsonSerializer.Deserialize<ServiceResponse>(responseLine, DualLinkServiceProtocol.JsonOptions)
-                ?? throw new DualLinkServiceException("The local service returned an empty response.");
+                ?? throw ProtocolError("The local service returned an empty response.");
             if (response.ProtocolVersion != DualLinkServiceProtocol.CurrentVersion || response.Id != request.Id)
-                throw new DualLinkServiceException("The local service response did not match the request.");
+                throw ProtocolError("The local service response did not match the request.");
             if (!response.Success)
                 throw new DualLinkServiceException(response.Error ?? "The privileged operation could not be completed.");
             if (response.Payload is not JsonElement responsePayload)
-                throw new DualLinkServiceException("The local service response was incomplete.");
+                throw ProtocolError("The local service response was incomplete.");
             return responsePayload.Deserialize<T>(DualLinkServiceProtocol.JsonOptions)
-                ?? throw new DualLinkServiceException("The local service response was invalid.");
+                ?? throw ProtocolError("The local service response was invalid.");
+    }
+
+    private void InvalidateConnection()
+    {
+        Interlocked.Exchange(ref _faulted, 1);
+        _pipe.Dispose();
+    }
+
+    private DualLinkServiceException ProtocolError(string message)
+    {
+        InvalidateConnection();
+        return new DualLinkServiceException(message);
     }
 
     private static CancellationTokenSource CreateDeadline(CancellationToken token, TimeSpan deadline)
@@ -269,7 +302,7 @@ public sealed class DualLinkServiceClient : IAsyncDisposable
                 var newlineOffset = Array.IndexOf(_buffer, (byte)'\n', _offset, _count);
                 var bytesToAppend = newlineOffset >= 0 ? newlineOffset - _offset : _count;
                 if (frame.WrittenCount + bytesToAppend > DualLinkServiceProtocol.MaximumFrameBytes)
-                    throw new DualLinkServiceException("The local service response was too large.");
+                    throw new IOException("The local service response was too large.");
 
                 _buffer.AsSpan(_offset, bytesToAppend).CopyTo(frame.GetSpan(bytesToAppend));
                 frame.Advance(bytesToAppend);
@@ -299,7 +332,8 @@ public sealed class DualLinkServiceClient : IAsyncDisposable
             {
                 try
                 {
-                    if (!process.HasExited) process.Kill(entireProcessTree: true);
+                    // The independent child watchdog must survive to restore the filter.
+                    if (!process.HasExited) process.Kill();
                     await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
                 }
                 catch (InvalidOperationException) { }

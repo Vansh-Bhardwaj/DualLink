@@ -69,22 +69,43 @@ public static class NetworkDiscovery
     public static void UpdateRates(IEnumerable<LinkInfo> links, double elapsedSeconds)
     {
         ArgumentNullException.ThrowIfNull(links);
-        elapsedSeconds = Math.Max(0.001d, elapsedSeconds);
+        var list = links.ToArray();
+        ApplyRates(list, CaptureRates(list.Select(x => x.Id)), elapsedSeconds);
+    }
+
+    public static IReadOnlyDictionary<string, (long Received, long Sent)> CaptureRates(IEnumerable<string> ids)
+    {
+        var samples = new Dictionary<string, (long, long)>(StringComparer.OrdinalIgnoreCase);
         var interfaces = GetRateInterfaces();
-        foreach (var link in links)
+        foreach (var id in ids)
         {
-            if (!interfaces.TryGetValue(link.Id, out var nic)) continue;
+            if (!interfaces.TryGetValue(id, out var nic)) continue;
             try
             {
                 var stats = nic.GetIPv4Statistics();
-                var receivedDelta = Math.Max(0, stats.BytesReceived - link.LastReceivedBytes);
-                var sentDelta = Math.Max(0, stats.BytesSent - link.LastSentBytes);
-                link.LastReceivedBytes = stats.BytesReceived;
-                link.LastSentBytes = stats.BytesSent;
+                samples[id] = (stats.BytesReceived, stats.BytesSent);
+            }
+            catch (NetworkInformationException) { }
+        }
+        return samples;
+    }
+
+    public static void ApplyRates(IEnumerable<LinkInfo> links,
+        IReadOnlyDictionary<string, (long Received, long Sent)> samples, double elapsedSeconds)
+    {
+        elapsedSeconds = Math.Max(0.001d, elapsedSeconds);
+        foreach (var link in links)
+        {
+            if (samples.TryGetValue(link.Id, out var sample))
+            {
+                var receivedDelta = Math.Max(0, sample.Received - link.LastReceivedBytes);
+                var sentDelta = Math.Max(0, sample.Sent - link.LastSentBytes);
+                link.LastReceivedBytes = sample.Received;
+                link.LastSentBytes = sample.Sent;
                 link.DownloadMbps = receivedDelta * 8d / elapsedSeconds / 1_000_000d;
                 link.UploadMbps = sentDelta * 8d / elapsedSeconds / 1_000_000d;
             }
-            catch { link.DownloadMbps = 0; link.UploadMbps = 0; }
+            else { link.DownloadMbps = 0; link.UploadMbps = 0; }
         }
     }
 
@@ -114,20 +135,20 @@ public static class NetworkDiscovery
     public static async Task<ConnectionCheckResult> CheckConnectivityAsync(LinkInfo? link, CancellationToken token)
     {
         if (link is null)
-            return new ConnectionCheckResult("Connection missing", "Choose a connected network adapter.", DiagnosticState.Problem);
+            return new ConnectionCheckResult("Link", "Not connected", DiagnosticState.Problem);
 
         var nic = NetworkInterface.GetAllNetworkInterfaces()
             .FirstOrDefault(x => x.Id.Equals(link.Id, StringComparison.OrdinalIgnoreCase));
         if (nic is null || nic.OperationalStatus != OperationalStatus.Up)
-            return new ConnectionCheckResult(link.Kind, $"{link.DisplayName} is disconnected.", DiagnosticState.Problem);
+            return new ConnectionCheckResult(link.Kind, "Not connected", DiagnosticState.Problem);
 
         if (!IPAddress.TryParse(link.Address, out var source))
-            return new ConnectionCheckResult(link.Kind, "The adapter does not have a usable IPv4 address.", DiagnosticState.Problem);
+            return new ConnectionCheckResult(link.Kind, "No address", DiagnosticState.Problem);
 
         var stillOwnsAddress = nic.GetIPProperties().UnicastAddresses
             .Any(x => x.Address.Equals(source));
         if (!stillOwnsAddress)
-            return new ConnectionCheckResult(link.Kind, "The adapter address changed. DualLink will refresh it automatically.", DiagnosticState.Notice);
+            return new ConnectionCheckResult(link.Kind, "Refreshing", DiagnosticState.Notice);
 
         try
         {
@@ -139,15 +160,15 @@ public static class NetworkDiscovery
             await socket.ConnectAsync(new IPEndPoint(IPAddress.Parse("1.1.1.1"), 443), timeout.Token);
             var latency = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
             var state = latency <= 180 ? DiagnosticState.Good : DiagnosticState.Notice;
-            return new ConnectionCheckResult(link.Kind, $"{link.DisplayName} reached the internet in {latency:0} ms.", state);
+            return new ConnectionCheckResult(link.Kind, $"{latency:0} ms", state);
         }
         catch (OperationCanceledException) when (!token.IsCancellationRequested)
         {
-            return new ConnectionCheckResult(link.Kind, $"{link.DisplayName} did not reach the internet within 3 seconds.", DiagnosticState.Problem);
+            return new ConnectionCheckResult(link.Kind, "Timed out", DiagnosticState.Problem);
         }
         catch (Exception ex) when (ex is SocketException or InvalidOperationException or ArgumentException)
         {
-            return new ConnectionCheckResult(link.Kind, $"{link.DisplayName} cannot currently reach the internet.", DiagnosticState.Problem);
+            return new ConnectionCheckResult(link.Kind, "Offline", DiagnosticState.Problem);
         }
     }
 
@@ -159,8 +180,8 @@ public static class NetworkDiscovery
             timeout.CancelAfter(TimeSpan.FromSeconds(3));
             var addresses = await Dns.GetHostAddressesAsync("example.com", timeout.Token);
             return addresses.Length > 0
-                ? new ConnectionCheckResult("Name lookup", "Web addresses are resolving normally.", DiagnosticState.Good)
-                : new ConnectionCheckResult("Name lookup", "No address was returned.", DiagnosticState.Problem);
+                ? new ConnectionCheckResult("DNS", "Ready", DiagnosticState.Good)
+                : new ConnectionCheckResult("DNS", "No response", DiagnosticState.Problem);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
@@ -168,7 +189,7 @@ public static class NetworkDiscovery
         }
         catch
         {
-            return new ConnectionCheckResult("Name lookup", "DNS is not responding right now.", DiagnosticState.Problem);
+            return new ConnectionCheckResult("DNS", "No response", DiagnosticState.Problem);
         }
     }
 

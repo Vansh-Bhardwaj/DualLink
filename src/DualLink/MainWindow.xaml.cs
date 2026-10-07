@@ -27,6 +27,18 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private readonly DispatcherTimer _networkDebounceTimer;
     private readonly bool _previewMode;
     private readonly SemaphoreSlim _controllerGate = new(1, 1);
+    private readonly SessionRecovery _sessionRecovery = new();
+    private DiagnosticLog? _diagnosticLog;
+    private DateTimeOffset? _lastServiceSampleUtc;
+    private bool _resetDeviceRateBaseline = true;
+    private int _routeUpdateVersion;
+    private bool _discoveringApps;
+    private bool _scanningInstalledApps;
+    private bool _busy;
+    private string _actionHint = string.Empty;
+    private readonly Dictionary<string, int> _enabledRouteLimits = new(StringComparer.OrdinalIgnoreCase);
+    private readonly SemaphoreSlim _settingsWriteGate = new(1, 1);
+    private Task _settingsWriteTask = Task.CompletedTask;
     private TrayManager? _tray;
     private UserSettings _settings = new();
     private LinkInfo? _selectedEthernet;
@@ -43,7 +55,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private bool _exitRequested;
     private bool _closeToTray = true;
     private bool _loadingSettings;
-    private string _statusText = "Ready";
+    private string _statusText = "Off";
     private Brush _statusColor = new SolidColorBrush(Color.FromRgb(140, 150, 165));
     private string _prerequisiteText = "Checking";
     private DateTime _lastRateUpdateUtc = DateTime.UtcNow;
@@ -52,9 +64,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private CancellationTokenSource? _diagnosticsCts;
     private CancellationTokenSource? _wifiConnectCts;
     private CancellationTokenSource? _updateCts;
-    private string _diagnosticsSummaryText = "Run a check when something feels wrong.";
-    private string _updateStatusText = "Updates are checked only when you ask.";
-    private string _wifiNetworksStatusText = "Open to scan nearby networks.";
+    private string _diagnosticsSummaryText = "Ready to check";
+    private string _updateStatusText = string.Empty;
+    private string _wifiNetworksStatusText = "Ready";
     private UpdateCheckResult? _availableUpdate;
     private readonly Queue<TrafficSample> _trafficHistory = new();
     private readonly Dictionary<string, RouteTrafficBaseline> _routeTrafficBaselines = new(StringComparer.OrdinalIgnoreCase);
@@ -65,11 +77,25 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         InitializeComponent();
         DataContext = this;
+        PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == System.Windows.Input.Key.Escape && Drawers().Any(x => x.Visibility == Visibility.Visible))
+            {
+                CloseDrawers();
+                e.Handled = true;
+            }
+        };
+        Profiles.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(SelectedAppsText));
+            OnPropertyChanged(nameof(HasNoApps));
+        };
         _previewMode = previewMode;
 
         _settingsDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DualLink");
         _settingsPath = Path.Combine(_settingsDirectory, "settings.json");
         Directory.CreateDirectory(_settingsDirectory);
+        _diagnosticLog = new DiagnosticLog(Path.Combine(_settingsDirectory, "app.log"));
         _proxiFyre = new ProxiFyreManager(Log);
         _proxyCredentials = ProxyCredentials.Create();
 
@@ -79,7 +105,6 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             LoadPreviewAdapters();
             LoadPreviewProfiles();
         }
-        else RefreshAdapters();
 
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _timer.Tick += Timer_Tick;
@@ -92,11 +117,22 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 () => Dispatcher.BeginInvoke(async () => await ToggleArmedAsync()),
                 () => Dispatcher.BeginInvoke(ExitFromTray));
             UpdateButton();
-            _timer.Start();
             NetworkChange.NetworkAddressChanged += NetworkChanged;
             NetworkChange.NetworkAvailabilityChanged += NetworkChanged;
             SystemEvents.PowerModeChanged += PowerModeChanged;
-            Loaded += async (_, _) => await RefreshPrerequisitesAsync();
+            Loaded += async (_, _) =>
+            {
+                IsBusy = true;
+                try
+                {
+                    await RefreshInstalledAppsAsync();
+                    await RefreshAdaptersAsync();
+                    await RefreshPrerequisitesAsync();
+                    await UpdateRunningProfilesAsync();
+                }
+                catch (Exception ex) { Log($"Startup failed: {ex.Message}"); ActionHint = "Try Refresh again"; }
+                finally { IsBusy = false; if (!_exitRequested) _timer.Start(); }
+            };
         }
         else
         {
@@ -105,10 +141,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 profile.IsRunning = profile.Name is "Default browser" or "Download manager";
             StatusText = "Preview";
             StatusColor = new SolidColorBrush(Color.FromRgb(69, 198, 255));
-            DiagnosticsSummaryText = "Both connections are ready";
-            Diagnostics.Add(new ConnectionCheckResult("Ethernet", "Wired connection reached the internet in 18 ms.", DiagnosticState.Good));
-            Diagnostics.Add(new ConnectionCheckResult("Wi-Fi", "Mobile hotspot reached the internet in 42 ms.", DiagnosticState.Good));
-            Diagnostics.Add(new ConnectionCheckResult("Name lookup", "Web addresses are resolving normally.", DiagnosticState.Good));
+            DiagnosticsSummaryText = "Ready";
+            Diagnostics.Add(new ConnectionCheckResult("Ethernet", "18 ms", DiagnosticState.Good));
+            Diagnostics.Add(new ConnectionCheckResult("Wi-Fi", "42 ms", DiagnosticState.Good));
+            Diagnostics.Add(new ConnectionCheckResult("Web links", "Ready", DiagnosticState.Good));
             SeedPreviewTraffic();
         }
         Closing += MainWindow_Closing;
@@ -150,8 +186,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     };
     public ObservableCollection<RoutingModeOption> RoutingModeOptions { get; } = new()
     {
-        new RoutingModeOption { Mode = RoutingMode.Smart, DisplayName = "Smart", Description = "Adapts to live load and route limits" },
-        new RoutingModeOption { Mode = RoutingMode.Balanced, DisplayName = "Balanced", Description = "Follows each route's speed limit" },
+        new RoutingModeOption { Mode = RoutingMode.Balanced, DisplayName = "Both", Description = "Share new connections" },
+        new RoutingModeOption { Mode = RoutingMode.Smart, DisplayName = "Safe", Description = "Keep each server on one link" },
         new RoutingModeOption { Mode = RoutingMode.Failover, DisplayName = "Backup", Description = "Ethernet first, Wi-Fi if it fails" }
     };
     public ObservableCollection<UpdateChannelOption> UpdateChannelOptions { get; } = new()
@@ -163,13 +199,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public LinkInfo? SelectedEthernet
     {
         get => _selectedEthernet;
-        set { if (_selectedEthernet != value) { _selectedEthernet = value; OnPropertyChanged(); OnPropertyChanged(nameof(CombinedSpeedText)); OnPropertyChanged(nameof(CombinedUploadSpeedText)); OnPropertyChanged(nameof(EthernetQualityText)); SaveSettings(); } }
+        set { if (_selectedEthernet != value) { _selectedEthernet = value; OnPropertyChanged(); OnPropertyChanged(nameof(CombinedSpeedText)); OnPropertyChanged(nameof(CombinedUploadSpeedText)); OnPropertyChanged(nameof(EthernetQualityText)); ApplyRouteMix(); } }
     }
 
     public LinkInfo? SelectedWifi
     {
         get => _selectedWifi;
-        set { if (_selectedWifi != value) { _selectedWifi = value; OnPropertyChanged(); OnPropertyChanged(nameof(CombinedSpeedText)); OnPropertyChanged(nameof(CombinedUploadSpeedText)); OnPropertyChanged(nameof(WifiQualityText)); SaveSettings(); } }
+        set { if (_selectedWifi != value) { _selectedWifi = value; OnPropertyChanged(); OnPropertyChanged(nameof(CombinedSpeedText)); OnPropertyChanged(nameof(CombinedUploadSpeedText)); OnPropertyChanged(nameof(WifiQualityText)); ApplyRouteMix(); } }
     }
 
     public bool AutoBoost
@@ -223,7 +259,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             if (_selectedUpdateChannelOption == value) return;
             _selectedUpdateChannelOption = value;
             _availableUpdate = null;
-            UpdateStatusText = value?.Description ?? string.Empty;
+            UpdateStatusText = string.Empty;
             OnPropertyChanged();
             OnPropertyChanged(nameof(UpdateActionText));
             SaveSettings();
@@ -246,12 +282,22 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     }
 
     public string StatusText { get => _statusText; private set { _statusText = value; OnPropertyChanged(); } }
+    public bool IsBusy { get => _busy; private set { _busy = value; OnPropertyChanged(); UpdateButton(); } }
+    public string ActionHint { get => _actionHint; private set { _actionHint = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasActionHint)); } }
+    public bool HasActionHint => !string.IsNullOrWhiteSpace(ActionHint);
+    public string RecoveryText => _serviceStatus?.WatchdogRunning == true ? "Ready" : "Off";
+    public string SessionTrafficText => _previewMode ? "394 MB" : !_boosting ? "0 MB" : FormatBytes(CurrentRouteStatuses.Sum(x => x.DownloadedBytes));
+    public string SelectedAppsText => $"{Profiles.Count(x => x.IsSelected)} selected";
+    public string EthernetLinkState => GetLinkState(SelectedEthernet);
+    public string WifiLinkState => GetLinkState(SelectedWifi);
+    public string EthernetUsageText => GetLinkUsage(SelectedEthernet, "126 MB");
+    public string WifiUsageText => GetLinkUsage(SelectedWifi, "268 MB");
     public Brush StatusColor { get => _statusColor; private set { _statusColor = value; OnPropertyChanged(); } }
     public string PrerequisiteText { get => _prerequisiteText; private set { _prerequisiteText = value; OnPropertyChanged(); } }
     public int ActiveConnections => _previewMode ? 27 : _serviceStatus?.ActiveConnections ?? 0;
     public string CombinedSpeedText => $"{(SelectedEthernet?.DownloadMbps ?? 0) + (SelectedWifi?.DownloadMbps ?? 0):0.0} Mbps";
     public string CombinedUploadSpeedText => $"{(SelectedEthernet?.UploadMbps ?? 0) + (SelectedWifi?.UploadMbps ?? 0):0.0} Mbps";
-    public string TrafficScopeText => _boosting ? "Selected application traffic" : "What both connections are using right now";
+    public string TrafficScopeText => _boosting || _previewMode ? "App speed" : "Device speed";
     public string TrafficHistoryToolTip => _boosting
         ? "Last minute of selected application traffic · Ethernet and Wi-Fi"
         : "Last minute of total adapter traffic · Ethernet and Wi-Fi";
@@ -268,14 +314,14 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         get
         {
-            if (_previewMode) return "Both connections contributed";
-            if (!_boosting) return "Ready for the next boost";
+            if (_previewMode) return "Both links used";
+            if (!_boosting) return "Off";
             var used = CurrentRouteStatuses.Where(x => x.SuccessfulConnections > 0 || x.DownloadedBytes > 0 || x.UploadedBytes > 0).ToArray();
             return used.Length switch
             {
-                > 1 => "Both connections contributed",
-                1 => $"{used[0].Name} is carrying this boost",
-                _ => "Waiting for application traffic"
+                > 1 => "Both links used",
+                1 => $"{used[0].Name} used",
+                _ => "Waiting for traffic"
             };
         }
     }
@@ -284,8 +330,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         get
         {
             if (_previewMode) return "394 MB downloaded · 67 MB uploaded · 27 connections";
-            if (!_boosting) return "Usage starts at zero whenever boost begins.";
-            var statuses = CurrentRouteStatuses.Where(x => x.AcceptingNewConnections).ToArray();
+            if (!_boosting) return "0 MB";
+            var statuses = CurrentRouteStatuses;
             var downloaded = statuses.Sum(x => x.DownloadedBytes);
             var uploaded = statuses.Sum(x => x.UploadedBytes);
             var connections = statuses.Sum(x => x.SuccessfulConnections);
@@ -323,13 +369,46 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
     }
     public string VersionText => $"Version {UpdateChecker.CurrentVersion}";
-    public string RunningApplicationsStatusText => RunningApplications.Count == 0
-        ? "No visible applications are running right now."
-        : RunningApplications.Count == 1 ? "1 running application found" : $"{RunningApplications.Count} running applications found";
+    public string RunningApplicationsStatusText => _discoveringApps ? "Loading…" : RunningApplications.Count == 0
+        ? "No open apps" : $"{RunningApplications.Count} open";
 
     private bool RouterIsRunning => _serviceStatus?.IsRunning == true;
     private IReadOnlyList<ServiceProtocol.RouteStatus> CurrentRouteStatuses =>
         _serviceStatus?.Routes ?? Array.Empty<ServiceProtocol.RouteStatus>();
+
+    private string GetLinkState(LinkInfo? link)
+    {
+        if (link is null) return "Not connected";
+        if (link.Weight == 0) return "Off";
+        if (_previewMode) return "In use";
+        var route = CurrentRouteStatuses.FirstOrDefault(x => x.Address == link.Address);
+        if (_boosting && !route.IsHealthy) return "Reconnecting";
+        return route.ActiveConnections > 0 ? "In use" : "Ready";
+    }
+
+    private string GetLinkUsage(LinkInfo? link, string preview)
+    {
+        if (_previewMode) return preview;
+        if (link is null || !_boosting) return "0 MB";
+        return FormatBytes(CurrentRouteStatuses.Where(x => x.Address == link.Address).Sum(x => x.DownloadedBytes));
+    }
+
+    private void SetBoosting(bool value)
+    {
+        if (_boosting == value) return;
+        _boosting = value;
+        if (!value) _resetDeviceRateBaseline = true;
+        _sessionRecovery.Reset();
+        _trafficHistory.Clear();
+        _lastServiceSampleUtc = null;
+        _routeTrafficBaselines.Clear();
+        foreach (var link in new[] { SelectedEthernet, SelectedWifi }.OfType<LinkInfo>())
+        { link.DownloadMbps = 0; link.UploadMbps = 0; }
+        OnPropertyChanged(nameof(TrafficScopeText));
+        OnPropertyChanged(nameof(TrafficHistoryToolTip));
+        OnPropertyChanged(nameof(EthernetGraphPoints));
+        OnPropertyChanged(nameof(WifiGraphPoints));
+    }
 
     private void LoadProfilesAndSettings()
     {
@@ -341,6 +420,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
         catch { _settings = new UserSettings(); }
 
+        _settings.SelectedProfiles ??= new();
+        _settings.CustomProfiles = (_settings.CustomProfiles ?? new()).Where(x => x is not null &&
+            !string.IsNullOrWhiteSpace(x.Name) && x.Processes is not null && x.ExecutablePaths is not null &&
+            (x.Processes.Count > 0 || x.ExecutablePaths.Count > 0)).ToList();
+
         AutoBoost = _settings.AutoBoost || !File.Exists(_settingsPath);
         CloseToTray = _settings.CloseToTray;
         // An old crash may leave Armed=true in settings. V4 never raises an
@@ -349,48 +433,90 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _armed = false;
         SelectedRoutingModeOption = RoutingModeOptions.FirstOrDefault(x => x.Mode == _settings.RoutingMode) ?? RoutingModeOptions[0];
         SelectedUpdateChannelOption = UpdateChannelOptions.FirstOrDefault(x => x.Channel == _settings.UpdateChannel) ?? UpdateChannelOptions[0];
-        var defaults = new List<AppProfile>
+        foreach (var profile in _settings.CustomProfiles)
         {
-            new AppProfile { Name="Epic Games", Subtitle="Epic and EOS game downloads", Accent="#49B8FF", Processes=new(){"EpicGamesLauncher.exe","EpicOnlineServicesInstallHelper.exe"} },
-            new AppProfile { Name="Steam", Subtitle="Steam library downloads and updates", Accent="#66C0F4", Processes=new(){"steam.exe"} },
-            new AppProfile { Name="Riot Games", Subtitle="Riot client and Valorant updates", Accent="#FF4655", Processes=new(){"RiotClientServices.exe","RiotClientUx.exe"} },
-            new AppProfile { Name="Battle.net", Subtitle="Blizzard downloads and Agent updates", Accent="#148EFF", Processes=new(){"Battle.net.exe","Agent.exe"} },
-            new AppProfile { Name="EA app", Subtitle="EA downloads and background updater", Accent="#FF6A2A", Processes=new(){"EADesktop.exe","EABackgroundService.exe"} }
-        };
-        var jDownloader = ApplicationProfileDiscovery.FindJDownloader();
-        if (jDownloader is not null) defaults.Add(jDownloader);
-        var browser = BrowserDiscovery.FindDefaultBrowser();
-        if (browser is not null)
-        {
-            defaults.Insert(0, new AppProfile
-            {
-                Name = "Default browser",
-                Subtitle = browser.DisplayName,
-                Accent = "#A78BFA",
-                Processes = new() { browser.ProcessName },
-                ExecutablePaths = new() { browser.ExecutablePath },
-                IsSystemDetected = true
-            });
-        }
-        foreach (var customProfile in _settings.CustomProfiles ?? new List<AppProfile>())
-            ApplicationProfileDiscovery.EnrichKnownApplication(customProfile);
-        foreach (var profile in defaults.Concat(_settings.CustomProfiles ?? new List<AppProfile>()))
-        {
-            profile.IsSelected = _previewMode
-                ? profile.Name is "Default browser" or "Steam"
-                : _settings.SelectedProfiles.Contains(profile.Name, StringComparer.OrdinalIgnoreCase);
+            profile.IsSelected = _settings.SelectedProfiles.Contains(profile.Name, StringComparer.OrdinalIgnoreCase);
             Profiles.Add(profile);
         }
         _loadingSettings = false;
     }
 
-    private void RefreshAdapters(bool logDiscovery = true)
+    public bool HasNoApps => Profiles.Count == 0 && !_scanningInstalledApps;
+    public string AppScanText => _scanningInstalledApps ? "Scanning…" : SelectedAppsText;
+
+    private async Task RefreshInstalledAppsAsync()
     {
-        var ethernetId = SelectedEthernet?.Id ?? _settings.EthernetId;
-        var wifiId = SelectedWifi?.Id ?? _settings.WifiId;
+        if (_scanningInstalledApps || _previewMode || _exitRequested) return;
+        _scanningInstalledApps = true;
+        OnPropertyChanged(nameof(AppScanText));
+        OnPropertyChanged(nameof(HasNoApps));
+        var existing = Profiles.ToArray();
+        var selections = existing.GroupBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(x => x.Key, x => x.Any(app => app.IsSelected), StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var discovered = await Task.Run(() =>
+            {
+                var apps = InstalledAppDiscovery.Scan();
+                foreach (var app in apps) app.Icon = AppIconLoader.Load(app.ExecutablePaths[0]);
+                var browser = BrowserDiscovery.FindDefaultBrowser();
+                return (Apps: apps, DefaultBrowser: browser?.ExecutablePath);
+            });
+            if (_exitRequested) return;
+            var updated = new List<AppProfile>();
+            foreach (var app in discovered.Apps)
+            {
+                app.IsSelected = selections.TryGetValue(app.Name, out var selected) ? selected :
+                    _settings.SelectedProfiles.Contains(app.Name, StringComparer.OrdinalIgnoreCase) ||
+                    _settings.SelectedProfiles.Contains("Default browser", StringComparer.OrdinalIgnoreCase) &&
+                    app.ExecutablePaths.Contains(discovered.DefaultBrowser ?? string.Empty, StringComparer.OrdinalIgnoreCase);
+                updated.Add(app);
+            }
+            foreach (var app in existing.Where(x => x.IsCustom || _boosting && x.IsSelected))
+            {
+                var duplicate = updated.FirstOrDefault(x => !app.IsCustom && x.Name.Equals(app.Name, StringComparison.OrdinalIgnoreCase) ||
+                    x.ExecutablePaths.Intersect(app.ExecutablePaths, StringComparer.OrdinalIgnoreCase).Any());
+                if (duplicate is null) updated.Add(app);
+                else if (_boosting && app.IsSelected)
+                {
+                    // Preserve the exact targets acknowledged by the active helper.
+                    updated.Remove(duplicate);
+                    updated.Add(app);
+                }
+                else duplicate.IsSelected |= app.IsSelected;
+            }
+            var icons = await Task.Run(() => updated.Where(x => x.Icon is null && x.ExecutablePaths.Count > 0)
+                .Select(x => (App: x, Icon: AppIconLoader.Load(x.ExecutablePaths[0]))).ToArray());
+            Profiles.Clear();
+            foreach (var app in updated) Profiles.Add(app);
+            foreach (var (app, icon) in icons) app.Icon = icon;
+            OnPropertyChanged(nameof(SelectedAppsText));
+            OnPropertyChanged(nameof(AppScanText));
+        }
+        catch (Exception ex) { Log($"Installed app scan failed: {ex.Message}"); ActionHint = "Scan failed · try again"; }
+        finally
+        {
+            _scanningInstalledApps = false;
+            OnPropertyChanged(nameof(AppScanText));
+            OnPropertyChanged(nameof(HasNoApps));
+        }
+    }
+
+    private async void ScanApps_Click(object sender, RoutedEventArgs e)
+    {
+        await _controllerGate.WaitAsync();
+        try { await RefreshInstalledAppsAsync(); await UpdateRunningProfilesAsync(); }
+        finally { _controllerGate.Release(); }
+    }
+
+    private async Task RefreshAdaptersAsync(bool logDiscovery = true)
+    {
+        var ethernetId = _settings.EthernetId ?? SelectedEthernet?.Id;
+        var wifiId = _settings.WifiId ?? SelectedWifi?.Id;
         var ethernetControl = SelectedEthernet?.RouteControlMbps ?? SavedRouteControl(_settings.EthernetWeight, _settings.EthernetSpeedLimitMbps);
         var wifiControl = SelectedWifi?.RouteControlMbps ?? SavedRouteControl(_settings.WifiWeight, _settings.WifiSpeedLimitMbps);
-        var discovered = NetworkDiscovery.FindInternetLinks();
+        var discovered = await Task.Run(NetworkDiscovery.FindInternetLinks);
+        if (_exitRequested) return;
         _loadingSettings = true;
         try
         {
@@ -411,6 +537,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             OnPropertyChanged(nameof(CombinedUploadSpeedText));
             OnPropertyChanged(nameof(EthernetQualityText));
             OnPropertyChanged(nameof(WifiQualityText));
+            OnPropertyChanged(nameof(EthernetLinkState));
+            OnPropertyChanged(nameof(WifiLinkState));
         }
         finally { _loadingSettings = false; }
         if (logDiscovery)
@@ -474,11 +602,18 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             var now = DateTime.UtcNow;
             var elapsedSeconds = Math.Max(0.2, (now - _lastRateUpdateUtc).TotalSeconds);
             _lastRateUpdateUtc = now;
-            NetworkDiscovery.UpdateRates(EthernetLinks.Concat(WifiLinks), elapsedSeconds);
             if (_boosting)
             {
                 await RefreshServiceStatusAsync();
+                await VerifyBoostHealthAsync();
                 UpdateBoostRates(elapsedSeconds);
+            }
+            else
+            {
+                var links = EthernetLinks.Concat(WifiLinks).ToArray();
+                var ids = links.Select(x => x.Id).ToArray();
+                var rates = await Task.Run(() => NetworkDiscovery.CaptureRates(ids));
+                ApplyDeviceRates(links, rates, elapsedSeconds);
             }
             RecordTrafficSample();
             OnPropertyChanged(nameof(ActiveConnections));
@@ -489,6 +624,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             OnPropertyChanged(nameof(EthernetQualityText));
             OnPropertyChanged(nameof(WifiQualityText));
             RefreshBoostContributionProperties();
+            OnPropertyChanged(nameof(SelectedAppsText));
             if (now >= _nextProcessScanUtc)
             {
                 await UpdateRunningProfilesAsync();
@@ -496,7 +632,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             }
 
             var selected = Profiles.Where(x => x.IsSelected).ToList();
-            var shouldBoost = _armed && selected.Count > 0 && (!AutoBoost || selected.Any(x => x.IsRunning));
+            var shouldBoost = _armed && selected.Count > 0 && (!AutoBoost || selected.Any(x => x.IsRunning) || _boosting && ActiveConnections > 0);
             if (shouldBoost && !_boosting && now >= _nextStartAttemptUtc) await StartBoostAsync(selected);
             else if (!shouldBoost && _boosting) await StopBoostAsync("No selected target is running");
             else if (shouldBoost && _boosting && DateTime.UtcNow >= _nextHealthCheckUtc)
@@ -507,7 +643,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             else if (_armed && !_boosting)
             {
                 var retrySeconds = Math.Max(0, (int)Math.Ceiling((_nextStartAttemptUtc - now).TotalSeconds));
-                StatusText = shouldBoost && retrySeconds > 0 ? $"Retrying in {retrySeconds}s" : "Waiting";
+                StatusText = shouldBoost && retrySeconds > 0 ? $"Retry in {retrySeconds}s" : "Waiting for app";
                 StatusColor = new SolidColorBrush(Color.FromRgb(255, 184, 77));
                 UpdateTray();
             }
@@ -517,6 +653,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         catch (Exception ex)
         {
             Log($"Controller error: {ex.Message}");
+            if (_serviceClient is { IsConnected: false })
+            {
+                _armed = false;
+                UpdateButton();
+                ActionHint = "Try Stop again";
+            }
             try
             {
                 await StopBoostAsync("Safety stop");
@@ -525,7 +667,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             catch (Exception restoreError)
             {
                 Log($"Automatic restore needs attention: {restoreError.Message}");
-                StatusText = "Restore needs attention";
+                StatusText = "Couldn't stop";
+                ActionHint = "Try Stop again";
                 StatusColor = new SolidColorBrush(Color.FromRgb(240, 108, 123));
                 UpdateTray();
             }
@@ -544,6 +687,21 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             _trafficHistory.Dequeue();
         OnPropertyChanged(nameof(EthernetGraphPoints));
         OnPropertyChanged(nameof(WifiGraphPoints));
+    }
+
+    private void ApplyDeviceRates(LinkInfo[] links, IReadOnlyDictionary<string, (long Received, long Sent)> rates, double elapsedSeconds)
+    {
+        if (_resetDeviceRateBaseline)
+        {
+            foreach (var link in links)
+                if (rates.TryGetValue(link.Id, out var sample))
+                {
+                    link.LastReceivedBytes = sample.Received;
+                    link.LastSentBytes = sample.Sent;
+                }
+            _resetDeviceRateBaseline = false;
+        }
+        NetworkDiscovery.ApplyRates(links, rates, elapsedSeconds);
     }
 
     private void SeedPreviewTraffic()
@@ -571,21 +729,33 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         for (var i = 0; i < samples.Length; i++)
         {
             var x = Math.Clamp((samples[i].TimestampUtc - first).TotalSeconds / durationSeconds, 0d, 1d) * 232d;
-            var y = 30d - Math.Clamp(selector(samples[i]) / maximum, 0d, 1d) * 28d;
+            var y = 26d - Math.Clamp(selector(samples[i]) / maximum, 0d, 1d) * 24d;
             points.Add(new System.Windows.Point(x, y));
         }
         return points;
     }
 
-    private Task VerifyBoostHealthAsync()
+    private async Task VerifyBoostHealthAsync()
     {
-        // Timer_Tick has already refreshed the helper status for this cycle.
-        // Reusing that snapshot avoids a second pipe round-trip on the UI thread.
-        if (_serviceStatus is { IsRunning: true, FilterRunning: true }) return Task.CompletedTask;
-        StatusText = "Recovering…";
-        StatusColor = new SolidColorBrush(Color.FromRgb(255, 184, 77));
-        UpdateTray();
-        return Task.CompletedTask;
+        if (_serviceStatus is null) throw new DualLinkServiceException("The helper disconnected.");
+        switch (_sessionRecovery.Evaluate(_serviceStatus))
+        {
+            case RecoveryAction.None:
+                UpdateActiveRouteStatus();
+                break;
+            case RecoveryAction.Wait:
+                StatusText = "Reconnecting";
+                StatusColor = (Brush)FindResource("WarningBrush");
+                break;
+            case RecoveryAction.Restart:
+                SetBoosting(false);
+                ScheduleStartRetry();
+                break;
+            case RecoveryAction.Restore:
+                await StopBoostAsync("Helper session ended; routing restored");
+                if (_armed) ScheduleStartRetry();
+                break;
+        }
     }
 
     private async Task RefreshServiceStatusAsync()
@@ -598,6 +768,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         OnPropertyChanged(nameof(EthernetQualityText));
         OnPropertyChanged(nameof(WifiQualityText));
         RefreshBoostContributionProperties();
+        OnPropertyChanged(nameof(RecoveryText));
     }
 
     private async Task UpdateRunningProfilesAsync()
@@ -605,14 +776,20 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (Interlocked.Exchange(ref _processScanInProgress, 1) != 0) return;
         try
         {
-            var pathProcessNames = Profiles.SelectMany(x => x.ExecutablePaths)
+            var pathProcessNames = Profiles.SelectMany(x => x.ExecutablePaths.Concat(x.Processes))
                 .Select(Path.GetFileName)
                 .OfType<string>()
                 .Where(x => !string.IsNullOrWhiteSpace(x))
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
             var snapshot = await Task.Run(() => CaptureRunningProcesses(pathProcessNames));
             foreach (var profile in Profiles)
-                profile.IsRunning = profile.Processes.Any(snapshot.Names.Contains) || profile.ExecutablePaths.Any(snapshot.Paths.Contains);
+                profile.IsRunning = ApplicationProfileDiscovery.IsRunning(profile, snapshot.Names, snapshot.Paths, snapshot.UnreadableNames);
+            var iconRequests = Profiles.Where(x => x.Icon is null).Select(profile =>
+                (Profile: profile, Path: profile.ExecutablePaths.FirstOrDefault(File.Exists) ??
+                    profile.Processes.Select(name => snapshot.Executables.GetValueOrDefault(name)).FirstOrDefault(x => x is not null)))
+                .Where(x => x.Path is not null).ToArray();
+            var icons = await Task.Run(() => iconRequests.Select(x => (x.Profile, Icon: AppIconLoader.Load(x.Path!))).ToArray());
+            foreach (var (profile, icon) in icons) profile.Icon = icon;
         }
         catch { }
         finally { Interlocked.Exchange(ref _processScanInProgress, 0); }
@@ -622,6 +799,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var unreadableNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var executables = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var processes = Process.GetProcesses();
         try
         {
@@ -635,13 +814,18 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 try
                 {
                     var path = process.MainModule?.FileName;
-                    if (!string.IsNullOrWhiteSpace(path)) paths.Add(Path.GetFullPath(path));
+                    if (!string.IsNullOrWhiteSpace(path))
+                    {
+                        paths.Add(Path.GetFullPath(path));
+                        executables.TryAdd(processName, Path.GetFullPath(path));
+                    }
                 }
+                catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 5) { unreadableNames.Add(processName); }
                 catch { }
             }
         }
         finally { foreach (var process in processes) process.Dispose(); }
-        return new RunningProcessSnapshot(names, paths);
+        return new RunningProcessSnapshot(names, paths, executables, unreadableNames);
     }
 
     private async Task StartBoostAsync(IReadOnlyCollection<AppProfile> selected)
@@ -668,7 +852,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 0,
                 _proxyCredentials.Username,
                 _proxyCredentials.Password));
-            _boosting = true;
+            if (!_serviceStatus.IsRunning || !_serviceStatus.FilterRunning)
+                throw new DualLinkServiceException("The helper did not confirm a running session.");
+            SetBoosting(true);
             ResetBoostRateBaselines();
             _startFailureCount = 0;
             _nextStartAttemptUtc = DateTime.MinValue;
@@ -723,7 +909,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             }
             if (!confirmedStopped)
             {
-                StatusText = "Restoring routing…";
+                StatusText = "Stopping…";
                 StatusColor = new SolidColorBrush(Color.FromRgb(255, 184, 77));
                 UpdateTray();
                 throw new DualLinkServiceException(
@@ -731,14 +917,14 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                     stopError ?? new InvalidOperationException("No stop confirmation was received."));
             }
 
-            _boosting = false;
+            SetBoosting(false);
             _routeTrafficBaselines.Clear();
             OnPropertyChanged(nameof(TrafficScopeText));
             OnPropertyChanged(nameof(TrafficHistoryToolTip));
             RefreshBoostContributionProperties();
             Log(reason);
         }
-        StatusText = _armed ? "Waiting" : "Ready";
+        StatusText = _armed ? "Waiting for app" : "Off";
         StatusColor = new SolidColorBrush(_armed ? Color.FromRgb(255, 184, 77) : Color.FromRgb(140, 150, 165));
         UpdateTray();
     }
@@ -792,15 +978,31 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             _settings.SelectedProfiles = Profiles.Where(x => x.IsSelected).Select(x => x.Name).ToList();
             _settings.CustomProfiles = Profiles.Where(x => x.IsCustom).ToList();
             var serialized = JsonSerializer.Serialize(_settings, new JsonSerializerOptions { WriteIndented = true });
-            var temporaryPath = _settingsPath + ".new";
-            File.WriteAllText(temporaryPath, serialized);
+            _settingsWriteTask = PersistSettingsAsync(serialized);
+        }
+        catch (Exception ex) { Log($"Settings failed: {ex.Message}"); }
+    }
+
+    private async Task PersistSettingsAsync(string serialized)
+    {
+        await _settingsWriteGate.WaitAsync();
+        var temporaryPath = _settingsPath + ".new";
+        try
+        {
+            await File.WriteAllTextAsync(temporaryPath, serialized);
             File.Move(temporaryPath, _settingsPath, true);
         }
-        catch { }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Log($"Settings could not be saved: {ex.Message}");
+            ActionHint = "Settings couldn't save";
+        }
+        finally { _settingsWriteGate.Release(); }
     }
 
     private void Log(string message)
     {
+        if (!_previewMode) _ = Task.Run(() => _diagnosticLog?.Write(message));
         Dispatcher.Invoke(() =>
         {
             Activity.Insert(0, $"{DateTime.Now:HH:mm:ss}  {message}");
@@ -810,10 +1012,15 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void UpdateButton()
     {
-        BoostButton.Content = _armed ? "Restore routing" : "Enable boost";
-        BoostButton.Background = new SolidColorBrush(_armed ? Color.FromRgb(72, 73, 82) : Color.FromRgb(125, 143, 255));
-        BoostButton.BorderBrush = new SolidColorBrush(_armed ? Color.FromRgb(92, 93, 104) : Color.FromRgb(125, 143, 255));
-        BoostButton.Foreground = new SolidColorBrush(_armed ? Color.FromRgb(245, 245, 247) : Color.FromRgb(16, 17, 22));
+        if (BoostButton is null) return;
+        var active = _armed || _boosting;
+        BoostButton.Content = active ? "Stop" : "Start";
+        BoostButton.IsEnabled = !IsBusy;
+        System.Windows.Automation.AutomationProperties.SetName(BoostButton, BoostButton.Content.ToString());
+        BoostButton.Tag = active ? null : "Primary";
+        BoostButton.Background = new SolidColorBrush(active ? Color.FromRgb(72, 73, 82) : Color.FromRgb(125, 143, 255));
+        BoostButton.BorderBrush = new SolidColorBrush(active ? Color.FromRgb(92, 93, 104) : Color.FromRgb(125, 143, 255));
+        BoostButton.Foreground = new SolidColorBrush(active ? Color.FromRgb(245, 245, 247) : Color.FromRgb(16, 17, 22));
         UpdateTray();
     }
 
@@ -849,7 +1056,24 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         else { _armed = false; _exitRequested = true; Close(); }
     }
 
-    private void RefreshAdapters_Click(object sender, RoutedEventArgs e) => RefreshAdapters();
+    private async void RefreshAdapters_Click(object sender, RoutedEventArgs e)
+    {
+        if (_previewMode || _exitRequested) return;
+        await _controllerGate.WaitAsync();
+        try
+        {
+            await RefreshAdaptersAsync();
+            if (_boosting && SelectedEthernet is not { Weight: > 0 } && SelectedWifi is not { Weight: > 0 })
+            {
+                await StopBoostAsync("No links available");
+                if (_armed) ScheduleStartRetry();
+                return;
+            }
+            await ApplyRouteMixCoreAsync();
+        }
+        catch (Exception ex) { Log($"Refresh failed: {ex.Message}"); ActionHint = "Refresh failed · try again"; }
+        finally { _controllerGate.Release(); }
+    }
     private void EthernetWeightDown_Click(object sender, RoutedEventArgs e) => ChangeWeight(SelectedEthernet, -1);
     private void EthernetWeightUp_Click(object sender, RoutedEventArgs e) => ChangeWeight(SelectedEthernet, 1);
     private void WifiWeightDown_Click(object sender, RoutedEventArgs e) => ChangeWeight(SelectedWifi, -1);
@@ -868,20 +1092,18 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             changed.RouteControlMbps = LinkInfo.FullSpeedControlMbps;
             Log("Keep at least one connection on");
         }
-        var balanced = RoutingModeOptions.First(x => x.Mode == RoutingMode.Balanced);
-        if (SelectedRoutingModeOption?.Mode != RoutingMode.Balanced)
-        {
-            SelectedRoutingModeOption = balanced;
-            Log("Balanced mode selected for manual route speeds");
-        }
-        else ApplyRouteMix();
+        ApplyRouteMix();
     }
     private async void ProfileSelection_Click(object sender, RoutedEventArgs e)
     {
         SaveSettings();
         if (_boosting) await ApplySelectionChangeAsync();
     }
-    private void AutoBoost_Click(object sender, RoutedEventArgs e) => SaveSettings();
+    private async void AutoBoost_Click(object sender, RoutedEventArgs e)
+    {
+        SaveSettings();
+        if (_armed) await ApplySelectionChangeAsync();
+    }
 
     private async Task ApplySelectionChangeAsync()
     {
@@ -890,7 +1112,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             await UpdateRunningProfilesAsync();
             var selected = Profiles.Where(x => x.IsSelected).ToList();
-            var shouldBoost = _armed && selected.Count > 0 && (!AutoBoost || selected.Any(x => x.IsRunning));
+            var shouldBoost = _armed && selected.Count > 0 && (!AutoBoost || selected.Any(x => x.IsRunning) || _boosting && ActiveConnections > 0);
             if (_boosting && shouldBoost)
             {
                 StatusText = "Updating apps…";
@@ -899,11 +1121,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 var processMatchers = selected.SelectMany(x => x.ProcessMatchers).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
                 if (_serviceClient is null || _serviceStatus is null)
                     throw new InvalidOperationException("The local network component is not connected.");
-                _serviceStatus = await _serviceClient.UpdateTargetsAsync(new ServiceProtocol.UpdateTargetsRequest(
-                    processMatchers,
-                    _serviceStatus.BoundPort,
-                    _proxyCredentials.Username,
-                    _proxyCredentials.Password));
+                if (_serviceStatus.ProcessMatchers is null || !_serviceStatus.ProcessMatchers.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(processMatchers))
+                    _serviceStatus = await _serviceClient.UpdateTargetsAsync(new ServiceProtocol.UpdateTargetsRequest(
+                        processMatchers, _serviceStatus.BoundPort, _proxyCredentials.Username, _proxyCredentials.Password));
+                ActionHint = string.Empty;
+                OnPropertyChanged(nameof(SelectedAppsText));
                 UpdateActiveRouteStatus();
                 UpdateTray();
             }
@@ -919,11 +1141,20 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         catch (Exception ex)
         {
             Log($"Target update failed: {ex.Message}");
+            if (_serviceStatus?.ProcessMatchers is { } confirmed)
+            {
+                var matchers = confirmed.ToHashSet(StringComparer.OrdinalIgnoreCase);
+                foreach (var profile in Profiles) profile.IsSelected = profile.ProcessMatchers.Any(matchers.Contains);
+                SaveSettings();
+                OnPropertyChanged(nameof(SelectedAppsText));
+            }
+            ActionHint = "App change failed · try again";
             try { await StopBoostAsync("Safety stop"); }
             catch (Exception restoreError)
             {
                 Log($"Restore needs attention: {restoreError.Message}");
-                StatusText = "Restore needs attention";
+                StatusText = "Couldn't stop";
+                ActionHint = "Try Stop again";
                 StatusColor = new SolidColorBrush(Color.FromRgb(240, 108, 123));
                 UpdateTray();
             }
@@ -938,9 +1169,23 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private async Task ToggleArmedAsync()
     {
+        if (IsBusy || _exitRequested || _previewMode) return;
+        IsBusy = true;
         await _controllerGate.WaitAsync();
         try
         {
+            ActionHint = string.Empty;
+            if (!_armed && !_boosting && !Profiles.Any(x => x.IsSelected))
+            {
+                ActionHint = "Pick an app";
+                return;
+            }
+            if (!_armed && _boosting)
+            {
+                await EnsureServiceClientAsync();
+                await StopBoostAsync("Stopped by user");
+                return;
+            }
             _armed = !_armed;
             if (_armed)
             {
@@ -955,14 +1200,29 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 catch (Exception ex)
                 {
                     Log($"Restore needs attention: {ex.Message}");
-                    StatusText = "Restore needs attention";
+                    StatusText = "Couldn't stop";
+                    ActionHint = "Try Stop again";
                     StatusColor = new SolidColorBrush(Color.FromRgb(240, 108, 123));
                     UpdateTray();
                 }
             }
-            else Log("Auto-boost armed");
+            else
+            {
+                await UpdateRunningProfilesAsync();
+                var selected = Profiles.Where(x => x.IsSelected).ToArray();
+                if (!AutoBoost || selected.Any(x => x.IsRunning)) await StartBoostAsync(selected);
+                else StatusText = "Waiting for app";
+            }
         }
-        finally { _controllerGate.Release(); }
+        catch (Exception ex)
+        {
+            Log($"Start failed: {ex.Message}");
+            _armed = false;
+            StatusText = "Couldn't start";
+            StatusColor = (Brush)FindResource("DangerBrush");
+            ActionHint = PrerequisiteText == "Needs setup" ? "Run setup again" : "Try Start again";
+        }
+        finally { _controllerGate.Release(); IsBusy = false; UpdateButton(); }
     }
 
     private void ChangeWeight(LinkInfo? link, int delta)
@@ -981,32 +1241,74 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private void UseOnly(LinkInfo? enabled, LinkInfo? disabled)
     {
         if (enabled is null || disabled is null) return;
-        if (enabled.Weight == 0) enabled.Weight = 1;
+        if (disabled.RouteControlMbps > 0) _enabledRouteLimits[disabled.Id] = disabled.RouteControlMbps;
+        if (enabled.Weight == 0) enabled.RouteControlMbps = _enabledRouteLimits.GetValueOrDefault(enabled.Id, LinkInfo.FullSpeedControlMbps);
         disabled.Weight = 0;
+        ApplyRouteMix();
+    }
+
+    private void BothLinks_Click(object sender, RoutedEventArgs e)
+    {
+        foreach (var link in new[] { SelectedEthernet, SelectedWifi }.OfType<LinkInfo>())
+            if (link.Weight == 0) link.RouteControlMbps = _enabledRouteLimits.GetValueOrDefault(link.Id, LinkInfo.FullSpeedControlMbps);
         ApplyRouteMix();
     }
 
     private async void ApplyRouteMix()
     {
-        SaveSettings();
-        if (!RouterIsRunning || _serviceClient is null) return;
+        if (_loadingSettings || _previewMode || _exitRequested) return;
+        var version = ++_routeUpdateVersion;
+        // Coalesce rapid picker changes before taking the lifecycle gate.
+        await Task.Delay(120);
+        await _controllerGate.WaitAsync();
         try
         {
-            var routes = BuildRouteDefinitions();
-            _serviceStatus = await _serviceClient.UpdateRoutesAsync(new ServiceProtocol.UpdateRoutesRequest(
-                ToServiceRoutes(routes),
-                ToServiceMode(SelectedRoutingModeOption?.Mode ?? RoutingMode.Smart)));
-            UpdateActiveRouteStatus();
-            RefreshBoostContributionProperties();
-            OnPropertyChanged(nameof(CompatibilityGuardText));
+            if (version != _routeUpdateVersion || _exitRequested) return;
+            await ApplyRouteMixCoreAsync();
+            SaveSettings();
         }
         catch (Exception ex)
         {
             Log($"Connection update failed: {ex.Message}");
-            StatusText = "Connection update failed";
-            StatusColor = new SolidColorBrush(Color.FromRgb(240, 108, 123));
-            UpdateTray();
+            RestoreConfirmedPolicy();
+            ActionHint = "Change failed · try again";
         }
+        finally { _controllerGate.Release(); }
+    }
+
+    private async Task ApplyRouteMixCoreAsync()
+    {
+        if (!RouterIsRunning || _serviceClient is null) return;
+        var routes = BuildRouteDefinitions();
+        _serviceStatus = await _serviceClient.UpdateRoutesAsync(new ServiceProtocol.UpdateRoutesRequest(
+            ToServiceRoutes(routes), ToServiceMode(SelectedRoutingModeOption?.Mode ?? RoutingMode.Balanced)));
+        ActionHint = string.Empty;
+        await VerifyBoostHealthAsync();
+        RefreshBoostContributionProperties();
+        OnPropertyChanged(nameof(CompatibilityGuardText));
+    }
+
+    private void RestoreConfirmedPolicy()
+    {
+        if (_serviceStatus is null) return;
+        _loadingSettings = true;
+        try
+        {
+            var active = _serviceStatus.Routes.Where(x => x.AcceptingNewConnections).ToArray();
+            _selectedEthernet = EthernetLinks.FirstOrDefault(x => active.Any(r => r.Address == x.Address)) ?? _selectedEthernet;
+            _selectedWifi = WifiLinks.FirstOrDefault(x => active.Any(r => r.Address == x.Address)) ?? _selectedWifi;
+            foreach (var link in new[] { SelectedEthernet, SelectedWifi }.OfType<LinkInfo>())
+            {
+                var confirmed = active.FirstOrDefault(x => x.Address == link.Address);
+                link.RouteControlMbps = confirmed.Address is null ? 0 : confirmed.SpeedLimitMbps == 0
+                    ? LinkInfo.FullSpeedControlMbps : confirmed.SpeedLimitMbps;
+            }
+            SelectedRoutingModeOption = RoutingModeOptions.First(x => (int)x.Mode == (int)_serviceStatus.Mode);
+            OnPropertyChanged(nameof(SelectedEthernet));
+            OnPropertyChanged(nameof(SelectedWifi));
+        }
+        finally { _loadingSettings = false; }
+        SaveSettings();
     }
 
     private RouteDefinition[] BuildRouteDefinitions()
@@ -1076,6 +1378,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         OnPropertyChanged(nameof(BoostContributionSummary));
         OnPropertyChanged(nameof(EthernetBoostContribution));
         OnPropertyChanged(nameof(WifiBoostContribution));
+        OnPropertyChanged(nameof(EthernetLinkState));
+        OnPropertyChanged(nameof(WifiLinkState));
+        OnPropertyChanged(nameof(EthernetUsageText));
+        OnPropertyChanged(nameof(WifiUsageText));
+        OnPropertyChanged(nameof(SessionTrafficText));
     }
 
     private static string FormatBytes(long bytes)
@@ -1121,7 +1428,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             var previousAddresses = new[] { SelectedEthernet?.Address, SelectedWifi?.Address };
             var previousCount = previousAddresses.Count(x => !string.IsNullOrWhiteSpace(x));
-            RefreshAdapters(logDiscovery: false);
+            await RefreshAdaptersAsync(logDiscovery: false);
             var currentAddresses = new[] { SelectedEthernet?.Address, SelectedWifi?.Address };
             if (previousAddresses.SequenceEqual(currentAddresses, StringComparer.OrdinalIgnoreCase)) return;
 
@@ -1154,11 +1461,14 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void UpdateActiveRouteStatus()
     {
-        var ethernetEnabled = SelectedEthernet is { Weight: > 0 };
-        var wifiEnabled = SelectedWifi is { Weight: > 0 };
+        var ethernetEnabled = SelectedEthernet is { Weight: > 0 } &&
+            CurrentRouteStatuses.Any(x => x.Address == SelectedEthernet.Address && x.AcceptingNewConnections && x.IsHealthy);
+        var wifiEnabled = SelectedWifi is { Weight: > 0 } &&
+            CurrentRouteStatuses.Any(x => x.Address == SelectedWifi.Address && x.AcceptingNewConnections && x.IsHealthy);
         StatusText = ethernetEnabled && !wifiEnabled ? "Ethernet only" :
-            wifiEnabled && !ethernetEnabled ? "Wi-Fi only" : "Boosting";
-        StatusColor = new SolidColorBrush(Color.FromRgb(85, 230, 165));
+            wifiEnabled && !ethernetEnabled ? "Wi-Fi only" :
+            !ethernetEnabled && !wifiEnabled ? "Reconnecting" : ActiveConnections == 0 ? "Waiting for traffic" : "On";
+        StatusColor = (Brush)FindResource(!ethernetEnabled && !wifiEnabled ? "WarningBrush" : "SuccessBrush");
         OnPropertyChanged(nameof(RouteHealthText));
     }
 
@@ -1182,6 +1492,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void UpdateBoostRates(double elapsedSeconds)
     {
+        var sampledAt = _serviceStatus?.SampledAtUtc;
+        if (sampledAt is not null && _lastServiceSampleUtc is not null)
+            elapsedSeconds = Math.Max(0.001, (sampledAt.Value - _lastServiceSampleUtc.Value).TotalSeconds);
+        _lastServiceSampleUtc = sampledAt;
         var statuses = CurrentRouteStatuses.ToDictionary(x => x.Address, StringComparer.OrdinalIgnoreCase);
         foreach (var link in new[] { SelectedEthernet, SelectedWifi }.OfType<LinkInfo>())
         {
@@ -1208,10 +1522,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void Details_Click(object sender, RoutedEventArgs e)
     {
-        SettingsDrawer.Visibility = Visibility.Collapsed;
-        AddAppDrawer.Visibility = Visibility.Collapsed;
-        WifiNetworksDrawer.Visibility = Visibility.Collapsed;
-        DetailsDrawer.Visibility = DetailsDrawer.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+        ToggleDrawer(DetailsDrawer);
     }
 
     private void Activity_Click(object sender, RoutedEventArgs e)
@@ -1219,7 +1530,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         var showActivity = ActivityPanel.Visibility != Visibility.Visible;
         ActivityPanel.Visibility = showActivity ? Visibility.Visible : Visibility.Collapsed;
         DiagnosticPanel.Visibility = showActivity ? Visibility.Collapsed : Visibility.Visible;
-        ActivityToggleButton.Content = showActivity ? "Results" : "Activity";
+        ActivityToggleButton.Content = showActivity ? "Results" : "Log";
     }
 
     private async void RunDiagnostics_Click(object sender, RoutedEventArgs e)
@@ -1229,21 +1540,21 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _diagnosticsCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var token = _diagnosticsCts.Token;
         Diagnostics.Clear();
-        DiagnosticsSummaryText = "Checking both connections…";
+        DiagnosticsSummaryText = "Checking…";
         try
         {
             var prerequisite = await _proxiFyre.CheckPrerequisitesAsync();
             Diagnostics.Add(new ConnectionCheckResult(
-                "Network filter",
-                prerequisite.Installed ? "The application filter is ready." : prerequisite.Message,
+                "Filter",
+                prerequisite.Installed ? "Ready" : "Run setup again",
                 prerequisite.Installed ? DiagnosticState.Good : DiagnosticState.Problem));
 
             var linksAreIndependent = SelectedEthernet is not null && SelectedWifi is not null &&
                 !SelectedEthernet.Id.Equals(SelectedWifi.Id, StringComparison.OrdinalIgnoreCase) &&
                 !SelectedEthernet.Address.Equals(SelectedWifi.Address, StringComparison.OrdinalIgnoreCase);
             Diagnostics.Add(new ConnectionCheckResult(
-                "Connection mix",
-                linksAreIndependent ? "Ethernet and Wi-Fi use separate local routes." : "Two different connected routes are not currently available.",
+                "Links",
+                linksAreIndependent ? "2 connected" : "Connect a second link",
                 linksAreIndependent ? DiagnosticState.Good : DiagnosticState.Notice));
 
             var connectivity = await Task.WhenAll(
@@ -1257,41 +1568,40 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 var routeStatuses = CurrentRouteStatuses;
                 var enabledRouteCount = routeStatuses.Count(x => x.AcceptingNewConnections);
                 var contributing = routeStatuses.Where(x => x.SuccessfulConnections > 0).ToArray();
-                var activeText = ActiveConnections == 1 ? "1 session is active now." : $"{ActiveConnections} sessions are active now.";
                 var routeMessage = enabledRouteCount == 1 && contributing.Length == 1
-                    ? $"{contributing[0].Name} is the only enabled connection and is carrying selected-app traffic. {activeText}"
+                    ? $"{contributing[0].Name} used"
                     : contributing.Length >= 2
-                        ? $"Both connections have carried selected-app sessions in this boost. {activeText}"
+                        ? "Both links used"
                         : contributing.Length == 1
-                            ? $"Only {contributing[0].Name} has carried sessions so far. DualLink assigns whole new connections; one connection cannot be split."
-                            : "No selected application has opened a routed session yet.";
+                            ? $"{contributing[0].Name} used"
+                            : "No app traffic yet";
                 var routeState = (enabledRouteCount == 1 && contributing.Length == 1) || contributing.Length >= 2
                     ? DiagnosticState.Good
                     : DiagnosticState.Notice;
                 Diagnostics.Add(new ConnectionCheckResult(
-                    "Active routing",
+                    "App traffic",
                     routeMessage,
                     routeState));
             }
             else
             {
-                Diagnostics.Add(new ConnectionCheckResult("Active routing", "Boost is idle; connection checks still work normally.", DiagnosticState.Notice));
+                Diagnostics.Add(new ConnectionCheckResult("App traffic", "Off", DiagnosticState.Notice));
             }
 
             var problems = Diagnostics.Count(x => x.State == DiagnosticState.Problem);
             var notices = Diagnostics.Count(x => x.State == DiagnosticState.Notice);
             DiagnosticsSummaryText = problems > 0
-                ? $"{problems} issue{(problems == 1 ? string.Empty : "s")} need attention"
-                : notices > 0 ? "Connections work, with a few notes" : "Both connections are ready";
+                ? $"{problems} issue{(problems == 1 ? string.Empty : "s")}" : notices > 0 ? "Check results" : "Ready";
         }
         catch (OperationCanceledException)
         {
-            DiagnosticsSummaryText = "The check was cancelled.";
+            DiagnosticsSummaryText = "Cancelled";
         }
         catch (Exception ex)
         {
-            DiagnosticsSummaryText = "The check could not finish.";
-            Diagnostics.Add(new ConnectionCheckResult("Diagnostics", ex.Message, DiagnosticState.Problem));
+            DiagnosticsSummaryText = "Couldn't check";
+            Log($"Check failed: {ex.Message}");
+            Diagnostics.Add(new ConnectionCheckResult("Check", "Try again", DiagnosticState.Problem));
         }
     }
 
@@ -1305,7 +1615,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
 
         UpdateCheckButton.IsEnabled = false;
-        UpdateStatusText = "Checking GitHub…";
+        UpdateStatusText = "Checking…";
         try
         {
             _updateCts?.Cancel();
@@ -1314,13 +1624,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             var result = await UpdateChecker.CheckAsync(
                 SelectedUpdateChannelOption?.Channel ?? UpdateChannel.Stable,
                 _updateCts.Token);
-            UpdateStatusText = result.Message;
+            UpdateStatusText = result.IsAvailable ? "Update ready" : "No updates";
             _availableUpdate = result.IsAvailable ? result : null;
             OnPropertyChanged(nameof(UpdateActionText));
         }
         catch
         {
-            UpdateStatusText = "Could not reach GitHub. Try again later.";
+            UpdateStatusText = "Couldn't check · try again";
         }
         finally { UpdateCheckButton.IsEnabled = true; }
     }
@@ -1328,8 +1638,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private async Task InstallAvailableUpdateAsync(UpdateCheckResult update)
     {
         var answer = MessageBox.Show(
-            $"Download and install DualLink {update.Version}?\n\nDualLink will verify the published SHA-256 checksum, restore normal routing, and close before setup continues.",
-            "Install DualLink update",
+            $"Install {update.Version}? DualLink will close.",
+            "Update",
             MessageBoxButton.YesNo,
             MessageBoxImage.Information);
         if (answer != MessageBoxResult.Yes) return;
@@ -1342,7 +1652,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             var progress = new Progress<int>(percent => UpdateStatusText = $"Downloading {update.Version} · {percent}%");
             var installer = await UpdateChecker.DownloadInstallerAsync(update, progress, _updateCts.Token);
-            UpdateStatusText = "Verified · preparing setup";
+            UpdateStatusText = "Installing…";
 
             await _controllerGate.WaitAsync();
             try
@@ -1373,7 +1683,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             UpdateStatusText = "Update could not be installed";
             Log($"Update failed: {ex.Message}");
             MessageBox.Show(
-                "DualLink couldn't download and verify the update. Check your internet connection, then try again. No changes were made.",
+                "Update failed. Try again.",
                 "Update not installed",
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
@@ -1386,13 +1696,23 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void Settings_Click(object sender, RoutedEventArgs e)
     {
-        DetailsDrawer.Visibility = Visibility.Collapsed;
-        AddAppDrawer.Visibility = Visibility.Collapsed;
-        WifiNetworksDrawer.Visibility = Visibility.Collapsed;
-        SettingsDrawer.Visibility = SettingsDrawer.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+        ToggleDrawer(SettingsDrawer);
     }
 
     public void ShowSettingsPreview() => SettingsDrawer.Visibility = Visibility.Visible;
+    public void ShowLimitsPreview() { ShowSettingsPreview(); SpeedLimits.IsExpanded = true; }
+    public async Task ShowInstalledAppsPreviewAsync()
+    {
+        var apps = await Task.Run(() =>
+        {
+            var found = InstalledAppDiscovery.Scan();
+            foreach (var app in found) app.Icon = AppIconLoader.Load(app.ExecutablePaths[0]);
+            return found;
+        });
+        Profiles.Clear();
+        foreach (var app in apps) Profiles.Add(app);
+        await UpdateRunningProfilesAsync();
+    }
     public void ShowDetailsPreview() => DetailsDrawer.Visibility = Visibility.Visible;
     public void ShowNetworkPickerPreview()
     {
@@ -1421,11 +1741,29 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void CloseDrawer_Click(object sender, RoutedEventArgs e)
     {
-        DetailsDrawer.Visibility = Visibility.Collapsed;
-        SettingsDrawer.Visibility = Visibility.Collapsed;
-        AddAppDrawer.Visibility = Visibility.Collapsed;
-        WifiNetworksDrawer.Visibility = Visibility.Collapsed;
+        CloseDrawers();
     }
+
+    private System.Windows.IInputElement? _drawerPreviousFocus;
+    private System.Windows.Controls.Border[] Drawers() => [DetailsDrawer, SettingsDrawer, AddAppDrawer, WifiNetworksDrawer];
+    private void CloseDrawers()
+    {
+        foreach (var drawer in Drawers()) drawer.Visibility = Visibility.Collapsed;
+        if (_drawerPreviousFocus is not null) System.Windows.Input.Keyboard.Focus(_drawerPreviousFocus);
+    }
+    private void OpenDrawer(System.Windows.Controls.Border drawer)
+    {
+        if (!Drawers().Any(x => x.Visibility == Visibility.Visible)) _drawerPreviousFocus = System.Windows.Input.Keyboard.FocusedElement;
+        foreach (var other in Drawers()) other.Visibility = Visibility.Collapsed;
+        drawer.Visibility = Visibility.Visible;
+        Dispatcher.BeginInvoke(() => drawer.MoveFocus(new System.Windows.Input.TraversalRequest(System.Windows.Input.FocusNavigationDirection.First)));
+    }
+    private void ToggleDrawer(System.Windows.Controls.Border drawer)
+    {
+        if (drawer.Visibility == Visibility.Visible) CloseDrawers();
+        else OpenDrawer(drawer);
+    }
+    private void DrawerBackdrop_Click(object sender, System.Windows.Input.MouseButtonEventArgs e) => CloseDrawers();
 
     private void ShowFromTray()
     {
@@ -1443,21 +1781,15 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         Close();
     }
 
-    private void AddExecutable_Click(object sender, RoutedEventArgs e)
+    private async void AddExecutable_Click(object sender, RoutedEventArgs e)
     {
-        DetailsDrawer.Visibility = Visibility.Collapsed;
-        SettingsDrawer.Visibility = Visibility.Collapsed;
-        WifiNetworksDrawer.Visibility = Visibility.Collapsed;
-        RefreshRunningApplications();
-        AddAppDrawer.Visibility = Visibility.Visible;
+        OpenDrawer(AddAppDrawer);
+        await RefreshRunningApplicationsAsync();
     }
 
     private async void WifiNetworks_Click(object sender, RoutedEventArgs e)
     {
-        DetailsDrawer.Visibility = Visibility.Collapsed;
-        SettingsDrawer.Visibility = Visibility.Collapsed;
-        AddAppDrawer.Visibility = Visibility.Collapsed;
-        WifiNetworksDrawer.Visibility = Visibility.Visible;
+        OpenDrawer(WifiNetworksDrawer);
         await RefreshWifiNetworksAsync();
     }
 
@@ -1488,14 +1820,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (!network.IsSaved)
         {
             OpenWindowsWifiPicker();
-            WifiNetworksStatusText = $"Choose {network.Name} in Windows to enter its password";
+            WifiNetworksStatusText = "Enter password in Windows";
             return;
         }
 
         _wifiConnectCts?.Cancel();
         _wifiConnectCts?.Dispose();
-        _updateCts?.Cancel();
-        _updateCts?.Dispose();
         _wifiConnectCts = new CancellationTokenSource(TimeSpan.FromSeconds(16));
         WifiNetworksStatusText = $"Connecting to {network.Name}…";
         try
@@ -1507,8 +1837,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 return;
             }
             await Task.Delay(900);
-            RefreshAdapters(logDiscovery: false);
-            if (RouterIsRunning) ApplyRouteMix();
+            await _controllerGate.WaitAsync();
+            try { await RefreshAdaptersAsync(logDiscovery: false); await ApplyRouteMixCoreAsync(); }
+            finally { _controllerGate.Release(); }
             await RefreshWifiNetworksAsync();
             Log($"Wi-Fi changed to {network.Name}");
         }
@@ -1516,6 +1847,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             WifiNetworksStatusText = "Wi-Fi connection timed out";
         }
+        catch (Exception ex) { WifiNetworksStatusText = "Couldn't connect"; Log($"Wi-Fi failed: {ex.Message}"); }
     }
 
     private void OpenWindowsWifi_Click(object sender, RoutedEventArgs e) => OpenWindowsWifiPicker();
@@ -1553,29 +1885,48 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             SaveSettings();
             if (_boosting && selectionChanged) await ApplySelectionChangeAsync();
             Log($"{existing.Name} is already in the application list");
-            AddAppDrawer.Visibility = Visibility.Collapsed;
+            CloseDrawers();
             return;
         }
 
-        var executablePaths = ApplicationProfileDiscovery.ExpandExecutablePaths(executablePath);
+        var discovered = await Task.Run(() => (Paths: ApplicationProfileDiscovery.ExpandExecutablePaths(executablePath),
+            Icon: AppIconLoader.Load(executablePath), Name: GetExecutableDisplayName(executablePath)));
+        var executablePaths = discovered.Paths;
         var profile = new AppProfile
         {
-            Name = GetExecutableDisplayName(executablePath),
+            Name = discovered.Name,
             Subtitle = executablePaths.Count > 1 ? "Application and its download engine" : "Custom application",
             Accent = "#B6C2D1",
             Processes = new List<string> { processName },
             ExecutablePaths = executablePaths,
             IsCustom = true,
-            IsSelected = true
+            IsSelected = true,
+            Icon = discovered.Icon
         };
         Profiles.Add(profile);
         SaveSettings();
         Log($"Added {processName}");
-        AddAppDrawer.Visibility = Visibility.Collapsed;
+        CloseDrawers();
         if (_boosting) await ApplySelectionChangeAsync();
     }
 
-    private void RefreshRunningApplications()
+    private async Task RefreshRunningApplicationsAsync()
+    {
+        if (_discoveringApps || _previewMode) return;
+        _discoveringApps = true;
+        OnPropertyChanged(nameof(RunningApplicationsStatusText));
+        try
+        {
+            var applications = await Task.Run(DiscoverRunningApplications);
+            if (_exitRequested) return;
+            RunningApplications.Clear();
+            foreach (var application in applications) RunningApplications.Add(application);
+        }
+        catch (Exception ex) { Log($"App scan failed: {ex.Message}"); }
+        finally { _discoveringApps = false; OnPropertyChanged(nameof(RunningApplicationsStatusText)); }
+    }
+
+    private static RunningAppInfo[] DiscoverRunningApplications()
     {
         var discovered = new Dictionary<string, RunningAppInfo>(StringComparer.OrdinalIgnoreCase);
         var processes = Process.GetProcesses();
@@ -1601,10 +1952,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             foreach (var process in processes) process.Dispose();
         }
 
-        RunningApplications.Clear();
-        foreach (var application in discovered.Values.OrderBy(x => x.DisplayName, StringComparer.CurrentCultureIgnoreCase))
-            RunningApplications.Add(application);
-        OnPropertyChanged(nameof(RunningApplicationsStatusText));
+        return discovered.Values.OrderBy(x => x.DisplayName, StringComparer.CurrentCultureIgnoreCase).ToArray();
     }
 
     private static string GetExecutableDisplayName(string executablePath)
@@ -1690,6 +2038,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _diagnosticsCts?.Dispose();
         _wifiConnectCts?.Cancel();
         _wifiConnectCts?.Dispose();
+        _updateCts?.Cancel();
+        _updateCts?.Dispose();
         await _controllerGate.WaitAsync();
         try
         {
@@ -1710,6 +2060,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 _serviceStatus = null;
             }
             SaveSettings();
+            await _settingsWriteTask;
             _tray?.Dispose();
             _tray = null;
             _allowClose = true;
@@ -1719,10 +2070,14 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
-    private void OnPropertyChanged([CallerMemberName] string? name = null) =>
+    private void OnPropertyChanged([CallerMemberName] string? name = null)
+    {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        if (name == nameof(SelectedAppsText)) PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AppScanText)));
+    }
 
     private readonly record struct TrafficSample(DateTime TimestampUtc, double EthernetMbps, double WifiMbps);
-    private sealed record RunningProcessSnapshot(HashSet<string> Names, HashSet<string> Paths);
+    private sealed record RunningProcessSnapshot(HashSet<string> Names, HashSet<string> Paths,
+        Dictionary<string, string> Executables, HashSet<string> UnreadableNames);
     private readonly record struct RouteTrafficBaseline(long DownloadedBytes, long UploadedBytes);
 }

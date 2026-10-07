@@ -250,7 +250,8 @@ public sealed class ProxiFyreManager
                     socks5ProxyEndpoint = $"127.0.0.1:{socksPort}",
                     username = credentials.Username,
                     password = credentials.Password,
-                    supportedProtocols = new[] { "TCP" }
+                    supportedProtocols = new[] { "TCP" },
+                    supportedAddressFamilies = new[] { "IPv4" }
                 }
             }
         };

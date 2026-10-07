@@ -8,6 +8,7 @@ public sealed class AppProfile : INotifyPropertyChanged
 {
     private bool _isSelected;
     private bool _isRunning;
+    private System.Windows.Media.ImageSource? _icon;
 
     public required string Name { get; init; }
     public required string Subtitle { get; init; }
@@ -38,9 +39,15 @@ public sealed class AppProfile : INotifyPropertyChanged
         }
     }
 
-    [JsonIgnore] public string RunState => IsRunning ? "Running" : "Idle";
+    [JsonIgnore] public string RunState => IsRunning ? "Open" : "Closed";
+    [JsonIgnore] public string Initial => Name[..1].ToUpperInvariant();
+    [JsonIgnore] public System.Windows.Media.ImageSource? Icon
+    {
+        get => _icon;
+        set { _icon = value; OnPropertyChanged(); }
+    }
     [JsonIgnore] public string ProcessSummary => string.Join(" · ", Processes.Select(Path.GetFileNameWithoutExtension));
-    [JsonIgnore] public IEnumerable<string> ProcessMatchers => ExecutablePaths.Concat(Processes);
+    [JsonIgnore] public IEnumerable<string> ProcessMatchers => ExecutablePaths.Count > 0 ? ExecutablePaths : Processes;
 
     public event PropertyChangedEventHandler? PropertyChanged;
     private void OnPropertyChanged([CallerMemberName] string? name = null) =>
@@ -133,7 +140,7 @@ public sealed class UserSettings
     public int EthernetSpeedLimitMbps { get; set; }
     public int WifiSpeedLimitMbps { get; set; }
     public bool CloseToTray { get; set; } = true;
-    public RoutingMode RoutingMode { get; set; } = RoutingMode.Smart;
+    public RoutingMode RoutingMode { get; set; } = RoutingMode.Balanced;
     public UpdateChannel UpdateChannel { get; set; } = UpdateChannel.Stable;
     public List<string> SelectedProfiles { get; set; } = new();
     public List<AppProfile> CustomProfiles { get; set; } = new();
@@ -181,13 +188,4 @@ public sealed class RouteSpeedOption
 public sealed record RunningAppInfo(string DisplayName, string ProcessName, string ExecutablePath)
 {
     public string Subtitle => $"{ProcessName} · Running now";
-}
-
-public sealed class BoostSessionState
-{
-    public bool ConfigExisted { get; set; }
-    public bool ServiceWasRunning { get; set; }
-    public string ConfigPath { get; set; } = string.Empty;
-    public string BackupPath { get; set; } = string.Empty;
-    public string? ConfigSecuritySddl { get; set; }
 }

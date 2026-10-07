@@ -9,7 +9,20 @@ internal static class Program
     private const string PipeArgument = "--pipe";
     private const string UserSidArgument = "--user-sid";
     private const string ParentPidArgument = "--parent-pid";
-    private static int _watchdogStarted;
+    private static readonly object WatchdogGate = new();
+    private static Process? _watchdog;
+
+    internal static bool WatchdogRunning
+    {
+        get
+        {
+            lock (WatchdogGate)
+            {
+                try { return _watchdog is { HasExited: false }; }
+                catch (InvalidOperationException) { return false; }
+            }
+        }
+    }
 
     public static async Task<int> Main(string[] args)
     {
@@ -94,25 +107,29 @@ internal static class Program
 
     internal static bool StartRecoveryWatchdog()
     {
-        if (Interlocked.Exchange(ref _watchdogStarted, 1) != 0) return true;
-        var watchdog = Path.Combine(AppContext.BaseDirectory, "DualLink.Watchdog.exe");
-        if (!File.Exists(watchdog)) return false;
-        try
+        lock (WatchdogGate)
         {
-            using var process = Process.Start(new ProcessStartInfo
+            if (WatchdogRunning) return true;
+            var watchdog = Path.Combine(AppContext.BaseDirectory, "DualLink.Watchdog.exe");
+            if (!File.Exists(watchdog)) return false;
+            try
             {
-                FileName = watchdog,
-                Arguments = Environment.ProcessId.ToString(),
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                WorkingDirectory = AppContext.BaseDirectory
-            });
-            return process is not null;
-        }
-        catch
-        {
-            Interlocked.Exchange(ref _watchdogStarted, 0);
-            return false;
+                _watchdog?.Dispose();
+                _watchdog = Process.Start(new ProcessStartInfo
+                {
+                    FileName = watchdog,
+                    Arguments = Environment.ProcessId.ToString(),
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    WorkingDirectory = AppContext.BaseDirectory
+                });
+                return _watchdog is not null;
+            }
+            catch
+            {
+                _watchdog = null;
+                return false;
+            }
         }
     }
 }

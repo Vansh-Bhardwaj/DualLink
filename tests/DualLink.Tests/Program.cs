@@ -4,6 +4,8 @@ using System.Net.Sockets;
 using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
+using System.IO.Pipes;
+using Protocol = DualLink.Service.Protocol;
 
 var sources = new List<string>();
 var credentials = new ProxyCredentials("duallink-test", "correct-horse-battery-staple");
@@ -366,8 +368,7 @@ Console.WriteLine("PASS: Wi-Fi picker keeps saved-profile switching separate fro
 var visibleWifiNetworks = WifiManager.GetAvailableNetworks();
 if (visibleWifiNetworks.Any(x => string.IsNullOrWhiteSpace(x.Name) || x.Name.Contains('\0') || x.SignalQuality > 100))
     throw new Exception("Native Wi-Fi discovery returned an invalid network entry.");
-Console.WriteLine($"PASS: native Windows Wi-Fi discovery completed with {visibleWifiNetworks.Count} visible network(s): " +
-    string.Join(", ", visibleWifiNetworks.Select(x => x.Name)));
+Console.WriteLine($"PASS: native Windows Wi-Fi discovery completed with {visibleWifiNetworks.Count} visible network(s)");
 
 var detectedJDownloader = ApplicationProfileDiscovery.FindJDownloader();
 if (detectedJDownloader is not null &&
@@ -446,7 +447,7 @@ var matchers = new AppProfile
     Name = "Test", Subtitle = "Test", Accent = "#ffffff", Processes = new() { "test.exe" },
     ExecutablePaths = new() { @"C:\Apps\Test\test.exe" }
 }.ProcessMatchers.ToArray();
-if (!matchers.Contains(@"C:\Apps\Test\test.exe") || !matchers.Contains("test.exe"))
+if (!matchers.Contains(@"C:\Apps\Test\test.exe") || matchers.Contains("test.exe"))
     throw new Exception("Full executable path matching regressed.");
 Console.WriteLine("PASS: custom targets preserve full executable paths");
 
@@ -560,7 +561,7 @@ await using (var soakProxy = new Socks5Balancer(0, _ => { }, credentials))
     await soakProxy.StartAsync(new[]
     {
         new RouteDefinition("127.0.0.1", 1, true, "Ethernet", 50),
-        new RouteDefinition("127.0.0.2", 1, false, "Wi-Fi", 500)
+        new RouteDefinition("127.0.0.2", 10, false, "Wi-Fi", 500)
     }, RoutingMode.Balanced);
     for (var offset = 0; offset < soakConnections; offset += 20)
         await Task.WhenAll(Enumerable.Range(offset, Math.Min(20, soakConnections - offset))
@@ -577,7 +578,7 @@ await using (var soakProxy = new Socks5Balancer(0, _ => { }, credentials))
         throw new Exception("Long-session connection accounting or client-task cleanup regressed.");
 }
 soakServer.Stop();
-Console.WriteLine($"PASS: {soakConnections}-connection soak favors the higher Wi-Fi limit and leaves no retained tasks");
+Console.WriteLine($"PASS: {soakConnections}-connection soak follows route weights and leaves no retained tasks");
 
 var managerRoot = Path.Combine(Path.GetTempPath(), $"DualLink-manager-test-{Guid.NewGuid():N}");
 var managerState = Path.Combine(managerRoot, "state");
@@ -687,7 +688,184 @@ finally
 }
 Console.WriteLine("PASS: application targets update live and invalid recovery state is preserved");
 
-async Task<TcpClient> OpenTunnelAsync(int proxyPort, int targetPort, CancellationToken token, ProxyCredentials proxyCredentials)
+var recoveryClock = new ManualClock();
+var recoveryPolicy = new SessionRecovery(recoveryClock);
+var inactiveSession = new DualLink.Service.Protocol.SessionStatus(false, false, 0, 0,
+    DualLink.Service.Protocol.RoutingMode.Balanced, [], false, false, 0);
+if (recoveryPolicy.Evaluate(inactiveSession) != RecoveryAction.Restart)
+    throw new Exception("An inactive helper session did not request a controller restart.");
+if (recoveryPolicy.Evaluate(inactiveSession with { Failure = "Restoration pending" }) != RecoveryAction.Restore ||
+    recoveryPolicy.Evaluate(inactiveSession with { FilterRunning = true }) != RecoveryAction.Restore)
+    throw new Exception("The controller attempted to restart before filter restoration was confirmed.");
+var filterLost = inactiveSession with { IsRunning = true };
+if (recoveryPolicy.Evaluate(filterLost) != RecoveryAction.Wait)
+    throw new Exception("The helper was not given time to recover its filter.");
+recoveryClock.Advance(TimeSpan.FromSeconds(16));
+if (recoveryPolicy.Evaluate(filterLost) != RecoveryAction.Restore)
+    throw new Exception("Filter recovery did not expire its bounded wait.");
+if (recoveryPolicy.Evaluate(filterLost with { FilterRunning = true }) != RecoveryAction.None ||
+    recoveryPolicy.Evaluate(filterLost) != RecoveryAction.Wait)
+    throw new Exception("A recovered filter retained a stale recovery deadline.");
+Console.WriteLine("PASS: controller recovery handles inactive helpers, pending restores, and bounded filter recovery");
+
+using (var configDocument = JsonDocument.Parse(ProxiFyreManager.BuildConfigJson(["test.exe"], 1080, credentials)))
+{
+    var rule = configDocument.RootElement.GetProperty("proxies")[0];
+    if (rule.GetProperty("supportedProtocols")[0].GetString() != "TCP" ||
+        rule.GetProperty("supportedAddressFamilies").GetArrayLength() != 1 ||
+        rule.GetProperty("supportedAddressFamilies")[0].GetString() != "IPv4")
+        throw new Exception("Unsupported traffic was sent to the IPv4 TCP backend.");
+}
+Console.WriteLine("PASS: filter rules explicitly match the backend's IPv4 TCP support");
+
+var halfCloseServer = new TcpListener(IPAddress.Loopback, 0);
+halfCloseServer.Start();
+var halfClosePort = ((IPEndPoint)halfCloseServer.LocalEndpoint).Port;
+var halfCloseResponse = Encoding.ASCII.GetBytes("response-after-eof");
+var halfCloseTask = Task.Run(async () =>
+{
+    using var accepted = await halfCloseServer.AcceptTcpClientAsync(cts.Token);
+    var stream = accepted.GetStream();
+    using var request = new MemoryStream();
+    await stream.CopyToAsync(request, cts.Token);
+    if (Encoding.ASCII.GetString(request.ToArray()) != "upload") throw new Exception("Half-close request was truncated.");
+    await stream.WriteAsync(halfCloseResponse, cts.Token);
+}, cts.Token);
+await using (var halfCloseProxy = new Socks5Balancer(0, _ => { }, credentials))
+{
+    await halfCloseProxy.StartAsync([("127.0.0.1", 1)]);
+    using var tunnel = await OpenTunnelAsync(halfCloseProxy.BoundPort, halfClosePort, cts.Token, credentials);
+    var halfCloseStream = tunnel.GetStream();
+    await halfCloseStream.WriteAsync(Encoding.ASCII.GetBytes("upload"), cts.Token);
+    tunnel.Client.Shutdown(SocketShutdown.Send);
+    var response = new byte[halfCloseResponse.Length];
+    await halfCloseStream.ReadExactlyAsync(response, cts.Token);
+    if (!response.SequenceEqual(halfCloseResponse)) throw new Exception("The proxy cancelled a half-close response.");
+    await halfCloseTask;
+    await WaitForClientsToDrainAsync(halfCloseProxy, cts.Token);
+}
+halfCloseServer.Stop();
+Console.WriteLine("PASS: TCP half-close preserves the opposite response and drains client tasks");
+
+var dnsFallbackServer = new TcpListener(IPAddress.Loopback, 0);
+dnsFallbackServer.Start();
+var dnsFallbackPort = ((IPEndPoint)dnsFallbackServer.LocalEndpoint).Port;
+var dnsFallbackTask = Task.Run(async () =>
+{
+    using var accepted = await dnsFallbackServer.AcceptTcpClientAsync(cts.Token);
+    var stream = accepted.GetStream();
+    var request = new byte[1];
+    await stream.ReadExactlyAsync(request, cts.Token);
+    await stream.WriteAsync(request, cts.Token);
+}, cts.Token);
+await using (var dnsFallbackProxy = new Socks5Balancer(0, _ => { }, credentials,
+    resolveHost: (_, _) => Task.FromResult(new[] { IPAddress.Parse("127.0.0.2"), IPAddress.Loopback })))
+{
+    await dnsFallbackProxy.StartAsync([("127.0.0.1", 1)]);
+    using var tunnel = await OpenTunnelAsync(dnsFallbackProxy.BoundPort, dnsFallbackPort, cts.Token, credentials, "fallback.test");
+    await tunnel.GetStream().WriteAsync(new byte[] { 42 }, cts.Token);
+    var response = new byte[1];
+    await tunnel.GetStream().ReadExactlyAsync(response, cts.Token);
+    if (response[0] != 42 || dnsFallbackProxy.RouteStatuses.Single().ConsecutiveFailures != 0)
+        throw new Exception("DNS endpoint fallback failed or quarantined a healthy route.");
+    await dnsFallbackTask;
+}
+dnsFallbackServer.Stop();
+Console.WriteLine("PASS: DNS retries another IPv4 endpoint without quarantining a healthy link");
+
+var capsServer = new TcpListener(IPAddress.Any, 0);
+capsServer.Start();
+var capsPort = ((IPEndPoint)capsServer.LocalEndpoint).Port;
+var capsSources = new List<string>();
+var capsTask = Task.Run(async () =>
+{
+    for (var i = 0; i < 20; i++)
+    {
+        using var client = await capsServer.AcceptTcpClientAsync(cts.Token);
+        capsSources.Add(((IPEndPoint)client.Client.RemoteEndPoint!).Address.ToString());
+        var stream = client.GetStream();
+        var request = new byte[256];
+        await stream.ReadAtLeastAsync(request, 1, cancellationToken: cts.Token);
+        await stream.WriteAsync(Encoding.ASCII.GetBytes("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"), cts.Token);
+    }
+}, cts.Token);
+await using (var independentCapsProxy = new Socks5Balancer(0, _ => { }, credentials))
+{
+    await independentCapsProxy.StartAsync([
+        new RouteDefinition("127.0.0.1", 1, true, "A", 10),
+        new RouteDefinition("127.0.0.2", 1, false, "B", 500)], RoutingMode.Balanced);
+    for (var i = 0; i < 20; i++)
+        await SendRequestAsync(independentCapsProxy.BoundPort, capsPort, cts.Token, credentials);
+    await capsTask;
+    if (capsSources.Count(x => x == "127.0.0.1") != 10 || capsSources.Count(x => x == "127.0.0.2") != 10)
+        throw new Exception("Speed caps silently changed equal route shares.");
+}
+capsServer.Stop();
+Console.WriteLine("PASS: speed caps do not change link sharing");
+
+var catalogDirectory = Path.Combine(Path.GetTempPath(), "DualLink-catalog-" + Guid.NewGuid().ToString("N"));
+Directory.CreateDirectory(catalogDirectory);
+try
+{
+    var steamPath = Path.Combine(catalogDirectory, "steam.exe");
+    var browserPath = Path.Combine(catalogDirectory, "chrome.exe");
+    var helperPath = Path.Combine(catalogDirectory, "Agent.exe");
+    var unknownPath = Path.Combine(catalogDirectory, "unrelated.exe");
+    foreach (var path in new[] { steamPath, browserPath, helperPath, unknownPath }) await File.WriteAllTextAsync(path, "fixture");
+    var apps = InstalledAppDiscovery.FromExecutablePaths([steamPath, steamPath.ToUpperInvariant(), browserPath, helperPath, unknownPath,
+        Path.Combine(catalogDirectory, "EADesktop.exe")]);
+    if (apps.Count != 2 || !apps.Select(x => x.Name).ToHashSet().SetEquals(["Steam", "Chrome"]) ||
+        apps.Any(x => !x.ExecutablePaths.All(Path.IsPathFullyQualified)))
+        throw new Exception("Installed app discovery showed absent, duplicate, helper-only, or unsupported apps.");
+    Console.WriteLine("PASS: installed app discovery includes only present supported apps and exact paths");
+    var steam = apps.Single(x => x.Name == "Steam");
+    var names = new HashSet<string>(["steam.exe"], StringComparer.OrdinalIgnoreCase);
+    var otherPaths = new HashSet<string>([Path.Combine(catalogDirectory, "other", "steam.exe")], StringComparer.OrdinalIgnoreCase);
+    var inaccessible = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    if (ApplicationProfileDiscovery.IsRunning(steam, names, otherPaths, inaccessible))
+        throw new Exception("A different readable executable was shown as the selected app.");
+    inaccessible.Add("steam.exe");
+    if (!ApplicationProfileDiscovery.IsRunning(steam, names, otherPaths, inaccessible))
+        throw new Exception("Protected background apps were hidden from automatic start detection.");
+    Console.WriteLine("PASS: app detection respects readable paths and handles protected background processes");
+}
+finally { Directory.Delete(catalogDirectory, recursive: true); }
+
+// Exercise the real client against a local fake helper. A failed operation is retryable;
+// a mismatched response must discard the pipe, rather than reusing stale frames.
+var pipeName = Protocol.DualLinkServiceProtocol.CreatePipeName();
+using var fakeHelper = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+var fakeHelperTask = Task.Run(async () =>
+{
+    await fakeHelper.WaitForConnectionAsync(cts.Token);
+    using var reader = new StreamReader(fakeHelper, Encoding.UTF8, leaveOpen: true);
+    using var writer = new StreamWriter(fakeHelper, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+    for (var requestIndex = 0; requestIndex < 3; requestIndex++)
+    {
+        var request = JsonSerializer.Deserialize<Protocol.ServiceRequest>((await reader.ReadLineAsync(cts.Token))!, Protocol.DualLinkServiceProtocol.JsonOptions)!;
+        var response = requestIndex switch
+        {
+            0 => new Protocol.ServiceResponse(request.Id, Protocol.DualLinkServiceProtocol.CurrentVersion, true, Payload:
+                JsonSerializer.SerializeToElement(new Protocol.HelloResponse(Protocol.DualLinkServiceProtocol.CurrentVersion, 0, "fixture", []), Protocol.DualLinkServiceProtocol.JsonOptions)),
+            1 => new Protocol.ServiceResponse(request.Id, Protocol.DualLinkServiceProtocol.CurrentVersion, false, "Operation failed"),
+            _ => new Protocol.ServiceResponse("wrong-request", Protocol.DualLinkServiceProtocol.CurrentVersion, true)
+        };
+        await writer.WriteLineAsync(JsonSerializer.Serialize(response, Protocol.DualLinkServiceProtocol.JsonOptions));
+    }
+}, cts.Token);
+await using (var serviceClient = await DualLinkServiceClient.ConnectAsync(pipeName, TimeSpan.FromSeconds(3), cts.Token))
+{
+    try { await serviceClient.GetStatusAsync(cts.Token); throw new Exception("Failed operation was accepted."); }
+    catch (DualLinkServiceException) { if (!serviceClient.IsConnected) throw new Exception("Operation failure discarded a healthy pipe."); }
+    try { await serviceClient.GetStatusAsync(cts.Token); throw new Exception("Mismatched response was accepted."); }
+    catch (DualLinkServiceException) { if (serviceClient.IsConnected) throw new Exception("Mismatched response left the pipe reusable."); }
+    try { await serviceClient.GetStatusAsync(cts.Token); throw new Exception("Faulted pipe was reused."); }
+    catch (DualLinkServiceException) { }
+}
+await fakeHelperTask;
+Console.WriteLine("PASS: helper operation errors remain retryable and stale IPC responses discard the connection");
+
+async Task<TcpClient> OpenTunnelAsync(int proxyPort, int targetPort, CancellationToken token, ProxyCredentials proxyCredentials, string? host = null)
 {
     var client = new TcpClient();
     try
@@ -702,7 +880,10 @@ async Task<TcpClient> OpenTunnelAsync(int proxyPort, int targetPort, Cancellatio
         var authReply = new byte[2];
         await stream.ReadExactlyAsync(authReply, token);
         if (authReply[1] != 0) throw new Exception("SOCKS authentication failed");
-        await stream.WriteAsync(new byte[] { 5, 1, 0, 1, 127, 0, 0, 1, (byte)(targetPort >> 8), (byte)targetPort }, token);
+        var destination = host is null ? new byte[] { 1, 127, 0, 0, 1 }
+            : new byte[] { 3, (byte)host.Length }.Concat(Encoding.ASCII.GetBytes(host)).ToArray();
+        await stream.WriteAsync(new byte[] { 5, 1, 0 }.Concat(destination)
+            .Concat(new byte[] { (byte)(targetPort >> 8), (byte)targetPort }).ToArray(), token);
         var connectReply = new byte[10];
         await stream.ReadExactlyAsync(connectReply, token);
         if (connectReply[1] != 0) throw new Exception("SOCKS CONNECT failed");
@@ -775,6 +956,13 @@ async Task ExpectConnectionRejectedAsync(int proxyPort, int targetPort, Cancella
     var connectReply = new byte[10];
     await stream.ReadExactlyAsync(connectReply, token);
     if (connectReply[1] == 0) throw new Exception("Closed destination unexpectedly accepted a connection");
+}
+
+sealed class ManualClock : TimeProvider
+{
+    private DateTimeOffset _now = DateTimeOffset.UtcNow;
+    public override DateTimeOffset GetUtcNow() => _now;
+    public void Advance(TimeSpan interval) => _now += interval;
 }
 
 sealed class UpdateTestHandler(byte[] installer, string checksum) : HttpMessageHandler

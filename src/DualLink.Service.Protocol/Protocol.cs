@@ -9,7 +9,7 @@ namespace DualLink.Service.Protocol;
 /// </summary>
 public static class DualLinkServiceProtocol
 {
-    public const int CurrentVersion = 1;
+    public const int CurrentVersion = 2;
     public const string PipePrefix = "DualLink.Service.";
     public const int MaximumFrameBytes = 256 * 1024;
 
@@ -87,7 +87,10 @@ public sealed record SessionStatus(
     bool CompatibilityGuardActive,
     bool CompatibilityGuardWarmingUp,
     int RememberedDestinations,
-    string? Failure = null);
+    string? Failure = null,
+    DateTimeOffset? SampledAtUtc = null,
+    bool WatchdogRunning = false,
+    IReadOnlyList<string>? ProcessMatchers = null);
 
 public readonly record struct RouteStatus(
     string Address,

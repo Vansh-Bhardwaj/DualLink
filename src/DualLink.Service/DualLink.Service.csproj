@@ -19,13 +19,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\DualLink.Service.Protocol\DualLink.Service.Protocol.csproj" />
-    <!-- The service owns the privileged runtime. These implementation files are linked
-         temporarily so the unelevated WPF project can migrate to a shared core assembly
-         without changing the v3 public contracts in this slice. -->
-    <Compile Include="..\DualLink\Models.cs" Link="Backend\Models.cs" />
-    <Compile Include="..\DualLink\Routing.cs" Link="Backend\Routing.cs" />
-    <Compile Include="..\DualLink\TransferRateLimiter.cs" Link="Backend\TransferRateLimiter.cs" />
-    <Compile Include="..\DualLink\Socks5Balancer.cs" Link="Backend\Socks5Balancer.cs" />
-    <Compile Include="..\DualLink\ProxiFyreManager.cs" Link="Backend\ProxiFyreManager.cs" />
+    <ProjectReference Include="..\DualLink.Core\DualLink.Core.csproj" />
   </ItemGroup>
 </Project>

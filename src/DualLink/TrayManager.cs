@@ -61,13 +61,13 @@ public sealed class TrayManager : IDisposable
         };
         openItem.Click += (_, _) => show();
 
-        _toggleItem = new Forms.ToolStripMenuItem("Arm automatic boost")
+        _toggleItem = new Forms.ToolStripMenuItem("Start")
         {
             Padding = new Forms.Padding(8, 5, 8, 5)
         };
         _toggleItem.Click += (_, _) => toggle();
 
-        var exitItem = new Forms.ToolStripMenuItem("Exit and restore routing")
+        var exitItem = new Forms.ToolStripMenuItem("Exit")
         {
             Padding = new Forms.Padding(8, 5, 8, 5)
         };
@@ -111,12 +111,12 @@ public sealed class TrayManager : IDisposable
 
     public void Update(TraySnapshot snapshot)
     {
-        var state = snapshot.Boosting ? $"Boosting · {snapshot.RoutingMode}" : snapshot.Armed ? "Armed · waiting for an app" : "Normal routing";
+        var state = snapshot.Boosting ? $"On · {snapshot.RoutingMode}" : snapshot.Armed ? "Waiting for app" : "Off";
         _statusItem.Text = state;
         _speedItem.Text = $"↓ {snapshot.DownloadMbps:0.0} Mbps    ↑ {snapshot.UploadMbps:0.0} Mbps";
         _sessionsItem.Text = snapshot.ActiveConnections == 1 ? "1 active session" : $"{snapshot.ActiveConnections} active sessions";
         _qualityItem.Text = snapshot.RouteQuality;
-        _toggleItem.Text = snapshot.Armed ? "Disarm and restore" : "Arm automatic boost";
+        _toggleItem.Text = snapshot.Armed || snapshot.Boosting ? "Stop" : "Start";
 
         var tooltip = $"DualLink — {state}\n↓ {snapshot.DownloadMbps:0.0} Mbps · ↑ {snapshot.UploadMbps:0.0} Mbps\n{snapshot.RouteQuality}";
         _notifyIcon.Text = tooltip.Length <= 127 ? tooltip : tooltip[..127];
@@ -146,7 +146,7 @@ public sealed class TrayManager : IDisposable
     private static Icon CreateStateIcon(Color accent)
     {
         var pixelSize = Math.Max(16, Forms.SystemInformation.SmallIconSize.Width);
-        var resource = System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/Assets/DualLink.ico"));
+        var resource = System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/DualLink;component/Assets/DualLink.ico"));
         using var stream = resource?.Stream ?? throw new InvalidOperationException("DualLink icon resource is missing.");
         using var sourceIcon = new Icon(stream, pixelSize, pixelSize);
         using var bitmap = sourceIcon.ToBitmap();

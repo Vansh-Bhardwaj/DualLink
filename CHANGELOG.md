@@ -2,6 +2,17 @@
 
 All notable DualLink changes are recorded here. Versions follow semantic versioning.
 
+## Unreleased
+
+- Replaces the dashboard with a compact links, speed, and apps view, short labels, real executable icons, and on-demand settings.
+- Scans Windows registrations, known install folders, and running supported apps; absent launchers no longer appear by default. Retains custom apps and provides Scan and Add.
+- Reconciles stopped helper sessions, bounds filter recovery, serializes route updates, and restores confirmed settings after a rejected change.
+- Reports real watchdog health, preserves retired-route traffic totals, resets graphs when the traffic scope changes, and discards damaged helper connections.
+- Moves app discovery, adapter sampling, icon loading, and settings writes away from the UI thread; virtualizes the app list.
+- Shares one routing core between the desktop and helper, retries multiple IPv4 DNS answers, preserves request-side TCP half-close responses, and separates speed caps from connection sharing.
+- Adds window failure tests, installed-app and IPC regressions, durable bounded local logs, and a repeatable loopback benchmark.
+- Makes IPv4 TCP filtering explicit. Selected-app IPv6 is blocked by the filter to allow IPv4 fallback; UDP is outside DualLink's routing scope.
+
 ## 4.0.0 - 2026-08-31
 
 - Runs the desktop interface with ordinary user permissions and elevates only the short-lived local network helper after **Enable boost** is selected.

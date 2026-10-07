@@ -38,6 +38,7 @@ internal sealed class PrivilegedServiceHost : IAsyncDisposable
     private readonly SemaphoreSlim _sessionGate = new(1, 1);
     private readonly SemaphoreSlim _writeGate = new(1, 1);
     private readonly ProxiFyreManager _filter;
+    private readonly BoostHealthMonitor _healthMonitor;
     private readonly Action<string> _log;
     private NamedPipeServerStream? _pipe;
     private Socks5Balancer? _balancer;
@@ -50,6 +51,7 @@ internal sealed class PrivilegedServiceHost : IAsyncDisposable
     private bool _sessionActive;
     private bool _filterRunning;
     private string? _failure;
+    private IReadOnlyList<string> _processMatchers = Array.Empty<string>();
     private int _disposed;
 
     public PrivilegedServiceHost(string pipeName, string clientSid, int? parentPid)
@@ -60,8 +62,15 @@ internal sealed class PrivilegedServiceHost : IAsyncDisposable
         _pipeName = pipeName;
         _clientSid = new SecurityIdentifier(clientSid);
         _parentPid = parentPid;
-        _log = message => Trace.WriteLine($"[DualLink.Service] {message}");
+        var diagnostics = new DiagnosticLog(Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+            "DualLink", "Recovery", "service.log"));
+        _log = diagnostics.Write;
         _filter = new ProxiFyreManager(_log);
+        _healthMonitor = new BoostHealthMonitor(
+            () => _balancer?.IsRunning == true,
+            async () => _filterRunning = await _filter.IsServiceRunningAsync().ConfigureAwait(false),
+            _filter.EnsureServiceRunningAsync);
     }
 
     public async Task<int> RunAsync()
@@ -251,6 +260,7 @@ internal sealed class PrivilegedServiceHost : IAsyncDisposable
                 _balancer = balancer;
                 _credentials = credentials;
                 _sessionActive = true;
+                _processMatchers = payload.ProcessMatchers.ToArray();
                 _filterRunning = true;
                 _failure = null;
                 StartHealthMonitor();
@@ -299,6 +309,7 @@ internal sealed class PrivilegedServiceHost : IAsyncDisposable
                 payload.ProcessMatchers.Select(static value => value.Trim()).ToArray(),
                 _balancer.BoundPort,
                 _credentials).ConfigureAwait(false);
+            _processMatchers = payload.ProcessMatchers.ToArray();
             return Success(request.Id, await BuildStatusAsync().ConfigureAwait(false));
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -380,7 +391,10 @@ internal sealed class PrivilegedServiceHost : IAsyncDisposable
             guard.IsActive,
             guard.IsWarmingUp,
             guard.RememberedDestinations,
-            _failure);
+            _failure,
+            DateTimeOffset.UtcNow,
+            Program.WatchdogRunning,
+            _processMatchers);
     }
 
     private async Task StopSessionAsync(string reason, Task? healthTaskToSkip = null)
@@ -406,6 +420,7 @@ internal sealed class PrivilegedServiceHost : IAsyncDisposable
             balancer = _balancer;
             _balancer = null;
             _credentials = null;
+            _processMatchers = Array.Empty<string>();
 
             if (needsRestore)
             {
@@ -485,11 +500,11 @@ internal sealed class PrivilegedServiceHost : IAsyncDisposable
                     try
                     {
                         if (!_sessionActive || _balancer is null) continue;
-                        if (!await _filter.IsServiceRunningAsync().ConfigureAwait(false))
+                        if (!Program.WatchdogRunning && !Program.StartRecoveryWatchdog())
+                            throw new InvalidOperationException("The recovery watchdog could not be restarted.");
+                        if (await _healthMonitor.CheckAndRecoverAsync().ConfigureAwait(false))
                         {
-                            _filterRunning = false;
-                            _log("The packet filter stopped; attempting one safe restart.");
-                            await _filter.EnsureServiceRunningAsync().ConfigureAwait(false);
+                            _log("The packet filter recovered.");
                         }
                         _filterRunning = true;
                     }

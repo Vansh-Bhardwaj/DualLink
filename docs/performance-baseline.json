@@ -1,0 +1,203 @@
+{
+  "environment": "Windows loopback, 64 MiB per connection, direct/proxy in one harness process; warm-up excluded, three measured trials",
+  "results": [
+    {
+      "trial": 1,
+      "transport": "direct",
+      "concurrency": 1,
+      "bytes": 67108864,
+      "seconds": 0.0972,
+      "megabitsPerSecond": 5524.2,
+      "harnessCpuMilliseconds": 265.6,
+      "harnessAllocatedBytes": 88888,
+      "harnessWorkingSetBytes": 44085248
+    },
+    {
+      "trial": 1,
+      "transport": "proxy",
+      "concurrency": 1,
+      "bytes": 67108864,
+      "seconds": 0.0598,
+      "megabitsPerSecond": 8982.2,
+      "harnessCpuMilliseconds": 140.6,
+      "harnessAllocatedBytes": 89952,
+      "harnessWorkingSetBytes": 43687936
+    },
+    {
+      "trial": 1,
+      "transport": "direct",
+      "concurrency": 8,
+      "bytes": 536870912,
+      "seconds": 0.1361,
+      "megabitsPerSecond": 31561.4,
+      "harnessCpuMilliseconds": 515.6,
+      "harnessAllocatedBytes": 556096,
+      "harnessWorkingSetBytes": 43671552
+    },
+    {
+      "trial": 1,
+      "transport": "proxy",
+      "concurrency": 8,
+      "bytes": 536870912,
+      "seconds": 0.1043,
+      "megabitsPerSecond": 41169.4,
+      "harnessCpuMilliseconds": 968.8,
+      "harnessAllocatedBytes": 667384,
+      "harnessWorkingSetBytes": 44830720
+    },
+    {
+      "trial": 1,
+      "transport": "direct",
+      "concurrency": 32,
+      "bytes": 2147483648,
+      "seconds": 0.3156,
+      "megabitsPerSecond": 54435.6,
+      "harnessCpuMilliseconds": 2640.6,
+      "harnessAllocatedBytes": 2239472,
+      "harnessWorkingSetBytes": 50180096
+    },
+    {
+      "trial": 1,
+      "transport": "proxy",
+      "concurrency": 32,
+      "bytes": 2147483648,
+      "seconds": 0.8746,
+      "megabitsPerSecond": 19644.2,
+      "harnessCpuMilliseconds": 6312.5,
+      "harnessAllocatedBytes": 2710024,
+      "harnessWorkingSetBytes": 55787520
+    },
+    {
+      "trial": 2,
+      "transport": "direct",
+      "concurrency": 1,
+      "bytes": 67108864,
+      "seconds": 0.044,
+      "megabitsPerSecond": 12208.4,
+      "harnessCpuMilliseconds": 109.4,
+      "harnessAllocatedBytes": 73760,
+      "harnessWorkingSetBytes": 56053760
+    },
+    {
+      "trial": 2,
+      "transport": "proxy",
+      "concurrency": 1,
+      "bytes": 67108864,
+      "seconds": 0.0772,
+      "megabitsPerSecond": 6958.2,
+      "harnessCpuMilliseconds": 125,
+      "harnessAllocatedBytes": 84360,
+      "harnessWorkingSetBytes": 56012800
+    },
+    {
+      "trial": 2,
+      "transport": "direct",
+      "concurrency": 8,
+      "bytes": 536870912,
+      "seconds": 0.0951,
+      "megabitsPerSecond": 45150.3,
+      "harnessCpuMilliseconds": 609.4,
+      "harnessAllocatedBytes": 547256,
+      "harnessWorkingSetBytes": 56012800
+    },
+    {
+      "trial": 2,
+      "transport": "proxy",
+      "concurrency": 8,
+      "bytes": 536870912,
+      "seconds": 0.1133,
+      "megabitsPerSecond": 37908.8,
+      "harnessCpuMilliseconds": 984.4,
+      "harnessAllocatedBytes": 670128,
+      "harnessWorkingSetBytes": 56172544
+    },
+    {
+      "trial": 2,
+      "transport": "direct",
+      "concurrency": 32,
+      "bytes": 2147483648,
+      "seconds": 0.3715,
+      "megabitsPerSecond": 46239.3,
+      "harnessCpuMilliseconds": 2953.1,
+      "harnessAllocatedBytes": 2222152,
+      "harnessWorkingSetBytes": 56279040
+    },
+    {
+      "trial": 2,
+      "transport": "proxy",
+      "concurrency": 32,
+      "bytes": 2147483648,
+      "seconds": 0.8654,
+      "megabitsPerSecond": 19851.6,
+      "harnessCpuMilliseconds": 6546.9,
+      "harnessAllocatedBytes": 2680544,
+      "harnessWorkingSetBytes": 57217024
+    },
+    {
+      "trial": 3,
+      "transport": "direct",
+      "concurrency": 1,
+      "bytes": 67108864,
+      "seconds": 0.0547,
+      "megabitsPerSecond": 9810.4,
+      "harnessCpuMilliseconds": 156.2,
+      "harnessAllocatedBytes": 65560,
+      "harnessWorkingSetBytes": 57237504
+    },
+    {
+      "trial": 3,
+      "transport": "proxy",
+      "concurrency": 1,
+      "bytes": 67108864,
+      "seconds": 0.1374,
+      "megabitsPerSecond": 3908.8,
+      "harnessCpuMilliseconds": 156.2,
+      "harnessAllocatedBytes": 83088,
+      "harnessWorkingSetBytes": 57241600
+    },
+    {
+      "trial": 3,
+      "transport": "direct",
+      "concurrency": 8,
+      "bytes": 536870912,
+      "seconds": 0.0562,
+      "megabitsPerSecond": 76483.6,
+      "harnessCpuMilliseconds": 546.9,
+      "harnessAllocatedBytes": 545952,
+      "harnessWorkingSetBytes": 57376768
+    },
+    {
+      "trial": 3,
+      "transport": "proxy",
+      "concurrency": 8,
+      "bytes": 536870912,
+      "seconds": 0.1076,
+      "megabitsPerSecond": 39920.6,
+      "harnessCpuMilliseconds": 640.6,
+      "harnessAllocatedBytes": 661056,
+      "harnessWorkingSetBytes": 57364480
+    },
+    {
+      "trial": 3,
+      "transport": "direct",
+      "concurrency": 32,
+      "bytes": 2147483648,
+      "seconds": 0.3284,
+      "megabitsPerSecond": 52306.7,
+      "harnessCpuMilliseconds": 1953.1,
+      "harnessAllocatedBytes": 2250664,
+      "harnessWorkingSetBytes": 57372672
+    },
+    {
+      "trial": 3,
+      "transport": "proxy",
+      "concurrency": 32,
+      "bytes": 2147483648,
+      "seconds": 0.941,
+      "megabitsPerSecond": 18256.9,
+      "harnessCpuMilliseconds": 6109.4,
+      "harnessAllocatedBytes": 2559688,
+      "harnessWorkingSetBytes": 59801600
+    }
+  ]
+}

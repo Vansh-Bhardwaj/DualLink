@@ -27,3 +27,5 @@ jobs:
         run: dotnet build src/DualLink.Service/DualLink.Service.csproj -c Release
       - name: Run integration tests
         run: dotnet run --project tests/DualLink.Tests/DualLink.Tests.csproj -c Release
+      - name: Run window recovery tests
+        run: dotnet run --project tests/DualLink.UiTests/DualLink.UiTests.csproj -c Release

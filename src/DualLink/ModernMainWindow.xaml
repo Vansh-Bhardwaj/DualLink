@@ -1,572 +1,423 @@
-<Window x:Class="DualLink.MainWindow"
-        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
-        Title="DualLink" Width="1080" Height="700" MinWidth="940" MinHeight="620"
-        Background="{StaticResource CanvasBrush}" Foreground="{StaticResource TextBrush}"
-         FontFamily="{StaticResource AppFont}" UseLayoutRounding="True" SnapsToDevicePixels="True"
-         TextOptions.TextFormattingMode="Ideal" TextOptions.TextRenderingMode="ClearType"
-         AutomationProperties.Name="DualLink network connections"
-        WindowStyle="None" ResizeMode="CanResize" WindowStartupLocation="CenterScreen">
+<Window x:Class="DualLink.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework" Title="DualLink" Width="1000" Height="680" MinWidth="860" MinHeight="580" Background="{StaticResource CanvasBrush}" Foreground="{StaticResource TextBrush}" FontFamily="{StaticResource AppFont}" UseLayoutRounding="True" SnapsToDevicePixels="True" TextOptions.TextFormattingMode="Display" WindowStyle="None" ResizeMode="CanResize" WindowStartupLocation="CenterScreen" AutomationProperties.Name="DualLink">
   <shell:WindowChrome.WindowChrome>
     <shell:WindowChrome CaptionHeight="0" ResizeBorderThickness="6" CornerRadius="12" GlassFrameThickness="0" />
   </shell:WindowChrome.WindowChrome>
-
   <Window.Resources>
+    <BooleanToVisibilityConverter x:Key="VisibleIf" />
     <DataTemplate x:Key="LinkOptionTemplate">
-      <StackPanel Margin="1,1">
-        <TextBlock Text="{Binding DisplayName}" FontWeight="Medium" TextTrimming="CharacterEllipsis" />
-        <TextBlock Text="{Binding DetailText}" Foreground="{StaticResource TertiaryBrush}" FontSize="12"
-                   Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
-      </StackPanel>
+      <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" ToolTip="{Binding DetailText}" />
     </DataTemplate>
+    <Style x:Key="Drawer" TargetType="Border">
+      <Setter Property="Width" Value="380" />
+      <Setter Property="HorizontalAlignment" Value="Right" />
+      <Setter Property="Background" Value="{StaticResource RaisedBrush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource DividerBrush}" />
+      <Setter Property="BorderThickness" Value="1,0,0,0" />
+      <Setter Property="Padding" Value="24" />
+      <Setter Property="Visibility" Value="Collapsed" />
+      <Setter Property="KeyboardNavigation.TabNavigation" Value="Cycle" />
+    </Style>
   </Window.Resources>
-
-  <Border Background="{StaticResource ContentBrush}" BorderBrush="#45464E" BorderThickness="1" CornerRadius="12">
+  <Border Background="{StaticResource ContentBrush}" BorderBrush="{StaticResource DividerBrush}" BorderThickness="1" CornerRadius="12">
     <Grid>
       <Grid.RowDefinitions>
         <RowDefinition Height="48" />
-        <RowDefinition Height="*" />
+        <RowDefinition />
       </Grid.RowDefinitions>
-
-      <!-- Compact, draggable title bar -->
-       <Border Grid.Row="0" Background="{StaticResource CanvasBrush}" CornerRadius="12,12,0,0"
-               BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,0,0,1"
-               AutomationProperties.Name="Window title bar"
-              MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+      <Border Background="{StaticResource CanvasBrush}" CornerRadius="12,12,0,0" BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,0,0,1" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
         <Grid>
-          <Grid.ColumnDefinitions>
-            <ColumnDefinition />
-            <ColumnDefinition Width="Auto" />
-            <ColumnDefinition Width="Auto" />
-          </Grid.ColumnDefinitions>
-          <StackPanel Orientation="Horizontal" Margin="16,0,0,0" VerticalAlignment="Center">
-            <Border Width="26" Height="26" CornerRadius="7" Background="{StaticResource AccentSoftBrush}">
-              <Image Source="pack://application:,,,/Assets/DualLink.ico" Width="24" Height="24" Stretch="Uniform" />
-            </Border>
-            <TextBlock Text="DualLink" FontSize="13" FontWeight="Medium"
-                       Margin="9,0,0,0" VerticalAlignment="Center" />
-            <TextBlock Text="{Binding VersionText}" Foreground="{StaticResource TertiaryBrush}" FontSize="10"
-                       Margin="8,1,0,0" VerticalAlignment="Center" />
+          <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0">
+            <Image Source="pack://application:,,,/DualLink;component/Assets/DualLink.ico" Width="25" Height="25" />
+            <TextBlock Text="DualLink" FontSize="14" FontWeight="Medium" Margin="9,0,0,0" VerticalAlignment="Center" />
           </StackPanel>
-
-          <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,6,0"
-                      shell:WindowChrome.IsHitTestVisibleInChrome="True">
-            <Border Background="{StaticResource RaisedBrush}" CornerRadius="12" Padding="10,5" Margin="0,0,5,0">
-              <StackPanel Orientation="Horizontal">
-                <Ellipse Width="6" Height="6" Fill="{Binding StatusColor}" Margin="0,0,6,0" />
-                 <TextBlock Text="{Binding StatusText}" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" />
-              </StackPanel>
-            </Border>
-             <Button Style="{StaticResource IconButton}" ToolTip="Connection details" AutomationProperties.Name="Connection details"
-                     AutomationProperties.HelpText="Open connection health and activity" Click="Details_Click">
-              <Path Data="M 9,2 A 7,7 0 1 0 9,16 A 7,7 0 1 0 9,2 M 9,8 L 9,13 M 9,5 L 9,6"
-                    Stroke="{StaticResource SecondaryBrush}" StrokeThickness="1.5" StrokeStartLineCap="Round" />
-            </Button>
-             <Button Style="{StaticResource IconButton}" ToolTip="Settings" AutomationProperties.Name="Settings"
-                     AutomationProperties.HelpText="Open app behavior and update settings" Click="Settings_Click">
-              <Path Data="M 9,2 L 10,4.1 L 12.3,4.5 L 14,3 L 16,6.4 L 13.9,7.5 L 14,10 L 16,11.4 L 14,15 L 11.8,13.8 L 9.8,15 L 9,17 L 5,17 L 4.2,14.8 L 2.1,13.7 L 0,15 L -2,11.5 L 0,10.2 L 0.1,7.7 L -2,6.5 L 0,3 L 2.1,4.2 L 4.2,3.1 L 5,1 Z M 7,7 A 2,2 0 1 0 7,11 A 2,2 0 1 0 7,7"
-                    Stroke="{StaticResource SecondaryBrush}" StrokeThickness="1.2" Fill="Transparent" Stretch="Uniform" Width="17" Height="17" />
-            </Button>
-          </StackPanel>
-
-          <StackPanel Grid.Column="2" Orientation="Horizontal" shell:WindowChrome.IsHitTestVisibleInChrome="True">
-             <Button Style="{StaticResource TitleBarButton}" Content="—" FontSize="14" ToolTip="Minimize to tray"
-                     AutomationProperties.Name="Minimize to tray" Click="Minimize_Click" />
-             <Button Style="{StaticResource TitleBarButton}" Content="×" FontSize="17" ToolTip="Close"
-                     AutomationProperties.Name="Close DualLink" Click="Close_Click" />
+          <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" shell:WindowChrome.IsHitTestVisibleInChrome="True">
+            <Button Content="Details" Style="{StaticResource QuietButton}" Click="Details_Click" AutomationProperties.Name="Details" Margin="0,0,8,0" />
+            <Button Content="Settings" Style="{StaticResource QuietButton}" Click="Settings_Click" AutomationProperties.Name="Settings" Margin="0,0,12,0" />
+            <Button Content="—" Style="{StaticResource TitleBarButton}" Click="Minimize_Click" ToolTip="Minimize" AutomationProperties.Name="Minimize" />
+            <Button Content="×" Style="{StaticResource TitleBarButton}" FontSize="18" Click="Close_Click" ToolTip="Close" AutomationProperties.Name="Close" />
           </StackPanel>
         </Grid>
       </Border>
-
       <Grid Grid.Row="1">
         <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="292" />
-          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="272" />
+          <ColumnDefinition />
         </Grid.ColumnDefinitions>
-
-        <!-- The utility pane is intentionally calmer and slightly lighter. -->
-        <Border Grid.Column="0" Background="{StaticResource SidebarBrush}" CornerRadius="0,0,0,12"
-                BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,0,1,0">
-          <Grid Margin="22,22,20,20">
-            <Grid.RowDefinitions>
-              <RowDefinition Height="Auto" />
-               <RowDefinition Height="12" />
-              <RowDefinition Height="Auto" />
-              <RowDefinition Height="1" />
-              <RowDefinition Height="Auto" />
-              <RowDefinition Height="1" />
-               <RowDefinition Height="Auto" />
-               <RowDefinition Height="12" />
-               <RowDefinition Height="Auto" />
-               <RowDefinition Height="8" />
-              <RowDefinition Height="Auto" />
-              <RowDefinition Height="*" />
-              <RowDefinition Height="Auto" />
-            </Grid.RowDefinitions>
-
-            <Grid>
-              <StackPanel>
-                <TextBlock Text="Connections" Style="{StaticResource SectionTitle}" />
-               <TextBlock Text="{Binding TrafficScopeText}" Style="{StaticResource CaptionText}" Margin="0,4,0,0"
-                          TextWrapping="Wrap" TextTrimming="CharacterEllipsis" />
-                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                  <TextBlock Text="↓" Foreground="{StaticResource WifiBrush}" FontSize="17" Margin="0,6,7,0" />
-                  <TextBlock Text="{Binding CombinedSpeedText}" Style="{StaticResource MetricText}" />
-                </StackPanel>
-                <StackPanel Orientation="Horizontal" Margin="1,2,0,0">
-                  <TextBlock Text="Upload" Foreground="{StaticResource TertiaryBrush}" FontSize="12" />
-                  <TextBlock Text="{Binding CombinedUploadSpeedText}" Foreground="{StaticResource SecondaryBrush}" FontSize="12" FontWeight="Medium" Margin="6,0,0,0" />
-                </StackPanel>
-                <Grid Width="232" Height="28" Margin="0,7,0,0" HorizontalAlignment="Left" ClipToBounds="True"
-                      ToolTip="{Binding TrafficHistoryToolTip}">
-                  <Line X1="0" Y1="26" X2="232" Y2="26" Stroke="{StaticResource DividerBrush}" StrokeThickness="1" />
-                  <Polyline Points="{Binding EthernetGraphPoints}" Stroke="{StaticResource EthernetBrush}" StrokeThickness="1.5"
-                            StrokeLineJoin="Round" SnapsToDevicePixels="True" />
-                  <Polyline Points="{Binding WifiGraphPoints}" Stroke="{StaticResource WifiBrush}" StrokeThickness="1.5"
-                            StrokeLineJoin="Round" SnapsToDevicePixels="True" />
-                </Grid>
-              </StackPanel>
-               <Button HorizontalAlignment="Right" VerticalAlignment="Top" Style="{StaticResource IconButton}"
-                       ToolTip="Refresh network adapters" AutomationProperties.Name="Refresh network adapters"
-                       AutomationProperties.HelpText="Recheck available Ethernet and Wi-Fi connections" Click="RefreshAdapters_Click">
-                <Path Data="M 14,6 A 6,6 0 1 0 15,11 M 14,3 L 14,7 L 10,7"
-                      Stroke="{StaticResource SecondaryBrush}" StrokeThickness="1.5" Fill="Transparent"
-                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
-              </Button>
-            </Grid>
-
-            <!-- Ethernet route -->
-             <Grid Grid.Row="2" Margin="0,0,0,10">
-              <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+        <Border Background="{StaticResource SidebarBrush}" BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,0,1,0" CornerRadius="0,0,0,12">
+          <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="22,20,22,0">
+              <Grid Margin="0,0,0,18">
+                <TextBlock Text="Links" Style="{StaticResource SectionTitle}" />
+                <Button HorizontalAlignment="Right" Style="{StaticResource IconButton}" Click="RefreshAdapters_Click" ToolTip="Refresh" AutomationProperties.Name="Refresh links">
+                  <Path Data="M 14,6 A 6,6 0 1 0 15,11 M 14,3 L 14,7 L 10,7" Stroke="{StaticResource SecondaryBrush}" StrokeThickness="1.5" />
+                </Button>
+              </Grid>
               <Grid>
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                  <Ellipse Width="7" Height="7" Fill="{StaticResource EthernetBrush}" />
-                  <TextBlock Text="Ethernet" FontWeight="Medium" Margin="8,0,0,0" />
+                <StackPanel Orientation="Horizontal">
+                  <Rectangle Width="5" Height="16" RadiusX="2" RadiusY="2" Fill="{StaticResource EthernetBrush}" Margin="0,0,9,0" />
+                  <TextBlock Text="Ethernet" FontSize="14" FontWeight="Medium" />
                 </StackPanel>
-                 <TextBlock Text="{Binding SelectedEthernet.SpeedText}" HorizontalAlignment="Right" Foreground="{StaticResource SecondaryBrush}" FontSize="12"
-                            TextTrimming="CharacterEllipsis" ToolTip="{Binding SelectedEthernet.SpeedText}" />
+                <TextBlock Text="{Binding EthernetLinkState}" HorizontalAlignment="Right" Style="{StaticResource CaptionText}" />
               </Grid>
-               <ComboBox Grid.Row="1" ItemsSource="{Binding EthernetLinks}" SelectedItem="{Binding SelectedEthernet}"
-                         ItemTemplate="{StaticResource LinkOptionTemplate}" Margin="15,6,0,0" Height="34"
-                         AutomationProperties.Name="Ethernet connection" AutomationProperties.HelpText="Choose the Ethernet adapter used for new connections" />
-               <Grid Grid.Row="2" Margin="15,6,0,0">
-                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition /><ColumnDefinition Width="112" /></Grid.ColumnDefinitions>
-                 <Button Content="Only" Style="{StaticResource QuietButton}" HorizontalAlignment="Left" Padding="0,4" Margin="0,0,9,0"
-                         ToolTip="Use Ethernet only" AutomationProperties.Name="Use Ethernet only"
-                         AutomationProperties.HelpText="Send new connections through Ethernet only" Click="EthernetOnly_Click" />
-                <ComboBox x:Name="EthernetRouteLimit" Grid.Column="2" ItemsSource="{Binding RouteSpeedOptions}"
-                          SelectedValuePath="Mbps" DisplayMemberPath="DisplayName"
-                          SelectedValue="{Binding SelectedEthernet.RouteControlMbps, Mode=TwoWay}"
-                           SelectionChanged="RouteLimit_SelectionChanged" Height="34"
-                           ToolTip="Ethernet download limit · changes apply immediately" AutomationProperties.Name="Ethernet download limit"
-                           AutomationProperties.HelpText="Choose a maximum speed for new Ethernet traffic" />
+              <ComboBox ItemsSource="{Binding EthernetLinks}" SelectedItem="{Binding SelectedEthernet}" ItemTemplate="{StaticResource LinkOptionTemplate}" Height="36" Margin="0,12,0,12" AutomationProperties.Name="Ethernet link" />
+              <TextBlock Text="{Binding SelectedEthernet.SpeedText}" FontSize="17" FontWeight="Medium" ToolTip="Mbps" />
+              <Grid Margin="0,9,0,0">
+                <TextBlock Text="{Binding EthernetUsageText}" Style="{StaticResource CaptionText}" VerticalAlignment="Center" />
+                <Button Content="Use only" HorizontalAlignment="Right" Style="{StaticResource QuietButton}" Padding="0,4" Click="EthernetOnly_Click" AutomationProperties.Name="Use Ethernet only" />
               </Grid>
-            </Grid>
-
-            <Border Grid.Row="3" Background="{StaticResource DividerBrush}" />
-
-            <!-- Wi-Fi route -->
-             <Grid Grid.Row="4" Margin="0,10,0,10">
-              <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+              <Border Height="1" Background="{StaticResource DividerBrush}" Margin="0,18,0,22" />
               <Grid>
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                  <Ellipse Width="7" Height="7" Fill="{StaticResource WifiBrush}" />
-                  <TextBlock Text="Wi-Fi / hotspot" FontWeight="Medium" Margin="8,0,0,0" />
+                <StackPanel Orientation="Horizontal">
+                  <Rectangle Width="5" Height="16" RadiusX="2" RadiusY="2" Fill="{StaticResource WifiBrush}" Margin="0,0,9,0" />
+                  <TextBlock Text="Wi-Fi" FontSize="14" FontWeight="Medium" />
                 </StackPanel>
-                 <TextBlock Text="{Binding SelectedWifi.SpeedText}" HorizontalAlignment="Right" Foreground="{StaticResource SecondaryBrush}" FontSize="12"
-                            TextTrimming="CharacterEllipsis" ToolTip="{Binding SelectedWifi.SpeedText}" />
+                <TextBlock Text="{Binding WifiLinkState}" HorizontalAlignment="Right" Style="{StaticResource CaptionText}" />
               </Grid>
-               <Grid Grid.Row="1" Margin="15,6,0,0">
-                <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                 <ComboBox x:Name="WifiAdapterPicker" ItemsSource="{Binding WifiLinks}" SelectedItem="{Binding SelectedWifi}"
-                           ItemTemplate="{StaticResource LinkOptionTemplate}" Height="34"
-                           AutomationProperties.Name="Wi-Fi connection" AutomationProperties.HelpText="Choose the Wi-Fi adapter used for new connections" />
-                 <Button Grid.Column="1" Content="Networks" Style="{StaticResource QuietButton}" Margin="9,0,0,0"
-                         Padding="0,4" ToolTip="See and change nearby Wi-Fi networks" AutomationProperties.Name="Wi-Fi networks"
-                         AutomationProperties.HelpText="Open the list of nearby Wi-Fi networks" Click="WifiNetworks_Click" />
+              <ComboBox x:Name="WifiAdapterPicker" ItemsSource="{Binding WifiLinks}" SelectedItem="{Binding SelectedWifi}" ItemTemplate="{StaticResource LinkOptionTemplate}" Height="36" Margin="0,12,0,12" AutomationProperties.Name="Wi-Fi link" />
+              <TextBlock Text="{Binding SelectedWifi.SpeedText}" FontSize="17" FontWeight="Medium" ToolTip="Mbps" />
+              <Grid Margin="0,9,0,0">
+                <TextBlock Text="{Binding WifiUsageText}" Style="{StaticResource CaptionText}" VerticalAlignment="Center" />
+                <Button Content="Use only" HorizontalAlignment="Right" Style="{StaticResource QuietButton}" Padding="0,4" Click="WifiOnly_Click" AutomationProperties.Name="Use Wi-Fi only" />
               </Grid>
-               <Grid Grid.Row="2" Margin="15,6,0,0">
-                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition /><ColumnDefinition Width="112" /></Grid.ColumnDefinitions>
-                 <Button Content="Only" Style="{StaticResource QuietButton}" HorizontalAlignment="Left" Padding="0,4" Margin="0,0,9,0"
-                         ToolTip="Use Wi-Fi only" AutomationProperties.Name="Use Wi-Fi only"
-                         AutomationProperties.HelpText="Send new connections through Wi-Fi only" Click="WifiOnly_Click" />
-                <ComboBox x:Name="WifiRouteLimit" Grid.Column="2" ItemsSource="{Binding RouteSpeedOptions}"
-                          SelectedValuePath="Mbps" DisplayMemberPath="DisplayName"
-                          SelectedValue="{Binding SelectedWifi.RouteControlMbps, Mode=TwoWay}"
-                           SelectionChanged="RouteLimit_SelectionChanged" Height="34"
-                           ToolTip="Wi-Fi download limit · changes apply immediately" AutomationProperties.Name="Wi-Fi download limit"
-                           AutomationProperties.HelpText="Choose a maximum speed for new Wi-Fi traffic" />
-              </Grid>
-            </Grid>
-
-            <Border Grid.Row="5" Background="{StaticResource DividerBrush}" />
-
-             <Grid Grid.Row="6" Margin="0,10,0,0">
-              <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-              <TextBlock Text="Automatic" FontWeight="Medium" VerticalAlignment="Center" />
-               <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding AutoBoost, Mode=TwoWay}"
-                         Click="AutoBoost_Click" VerticalAlignment="Center" AutomationProperties.Name="Automatic boost"
-                         AutomationProperties.HelpText="Boost selected apps while they are running" />
-            </Grid>
-
-             <Grid Grid.Row="8">
-              <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="112" /></Grid.ColumnDefinitions>
-              <TextBlock Text="Mode" FontWeight="Medium" VerticalAlignment="Center" />
-               <ComboBox Grid.Column="1" ItemsSource="{Binding RoutingModeOptions}" SelectedItem="{Binding SelectedRoutingModeOption, Mode=TwoWay}"
-                         Height="34" VerticalAlignment="Center" AutomationProperties.Name="Routing mode"
-                         AutomationProperties.HelpText="Choose how new connections are distributed" />
-            </Grid>
-
-             <TextBlock Grid.Row="10" Text="{Binding CompatibilityGuardText}" Style="{StaticResource CaptionText}"
-                       TextWrapping="Wrap" />
-          </Grid>
+              <Button Content="Networks" HorizontalAlignment="Left" Margin="0,10,0,0" Style="{StaticResource QuietButton}" Padding="0,6" Click="WifiNetworks_Click" AutomationProperties.Name="Wi-Fi networks" />
+              <Border Height="1" Background="{StaticResource DividerBrush}" Margin="0,16,0,22" />
+              <Button Content="Use both" HorizontalAlignment="Left" Style="{StaticResource QuietButton}" Padding="0,4" Click="BothLinks_Click" AutomationProperties.Name="Use both links" />
+            </StackPanel>
+          </ScrollViewer>
         </Border>
-
-        <!-- App targeting surface -->
-        <Grid Grid.Column="1" Margin="28,22,24,20">
+        <Grid Grid.Column="1" Margin="28,24,28,22">
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="18" />
-            <RowDefinition Height="*" />
-            <RowDefinition Height="16" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition />
           </Grid.RowDefinitions>
           <Grid>
-            <StackPanel>
-              <TextBlock Text="Applications" Style="{StaticResource SectionTitle}" />
-              <TextBlock Text="Choose which apps use both connections" Style="{StaticResource CaptionText}" Margin="0,4,0,0" />
-            </StackPanel>
-             <Button Content="Add application…" HorizontalAlignment="Right" VerticalAlignment="Center"
-                     AutomationProperties.Name="Add application" AutomationProperties.HelpText="Choose an application to route"
-                     Click="AddExecutable_Click" />
-          </Grid>
-
-          <Border Grid.Row="2" Background="{StaticResource SidebarBrush}" BorderBrush="{StaticResource DividerBrush}"
-                  BorderThickness="1" CornerRadius="11" ClipToBounds="True">
-            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-              <ItemsControl ItemsSource="{Binding Profiles}">
-                <ItemsControl.ItemTemplate>
-                  <DataTemplate>
-                    <Border x:Name="AppRow" BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,0,0,1"
-                            Background="Transparent" Padding="17,14">
-                      <Grid>
-                        <Grid.ColumnDefinitions>
-                          <ColumnDefinition Width="12" />
-                          <ColumnDefinition />
-                           <ColumnDefinition Width="Auto" />
-                           <ColumnDefinition Width="10" />
-                           <ColumnDefinition Width="Auto" />
-                           <ColumnDefinition Width="8" />
-                           <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <Ellipse Width="7" Height="7" Fill="{Binding Accent}" VerticalAlignment="Center" HorizontalAlignment="Left" />
-                        <StackPanel Grid.Column="1">
-                           <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="Medium" TextTrimming="CharacterEllipsis"
-                                      ToolTip="{Binding Name}" />
-                           <TextBlock Text="{Binding Subtitle}" Style="{StaticResource CaptionText}" Margin="0,3,0,0"
-                                      TextTrimming="CharacterEllipsis" ToolTip="{Binding Subtitle}" />
-                        </StackPanel>
-                         <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                          <Ellipse x:Name="RunDot" Width="6" Height="6" Fill="{StaticResource TertiaryBrush}" Margin="0,0,6,0" />
-                           <TextBlock Text="{Binding RunState}" Foreground="{StaticResource TertiaryBrush}" FontSize="12"
-                                      TextTrimming="CharacterEllipsis" />
-                         </StackPanel>
-                          <Button Grid.Column="4" Content="Remove" Click="RemoveProfile_Click" Padding="7,4" ToolTip="Remove this custom application"
-                                  AutomationProperties.Name="{Binding Name}" AutomationProperties.HelpText="Remove this application from DualLink">
-                           <Button.Style>
-                             <Style TargetType="Button" BasedOn="{StaticResource QuietButton}">
-                               <Setter Property="Visibility" Value="Collapsed" />
-                               <Setter Property="Foreground" Value="{StaticResource TertiaryBrush}" />
-                               <Style.Triggers>
-                                 <DataTrigger Binding="{Binding IsCustom}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger>
-                               </Style.Triggers>
-                             </Style>
-                           </Button.Style>
-                         </Button>
-                          <CheckBox Grid.Column="6" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding IsSelected, Mode=TwoWay}"
-                                    Click="ProfileSelection_Click" VerticalAlignment="Center"
-                                    AutomationProperties.Name="{Binding Name}"
-                                    AutomationProperties.HelpText="Include this application in DualLink routing" />
-                      </Grid>
-                      <Border.Style>
-                        <Style TargetType="Border">
-                          <Setter Property="Background" Value="Transparent" />
-                          <Style.Triggers>
-                            <DataTrigger Binding="{Binding IsSelected}" Value="True">
-                              <Setter Property="Background" Value="#20232B" />
-                            </DataTrigger>
-                            <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="{StaticResource HoverBrush}" /></Trigger>
-                          </Style.Triggers>
-                        </Style>
-                      </Border.Style>
-                    </Border>
-                    <DataTemplate.Triggers>
-                      <DataTrigger Binding="{Binding IsRunning}" Value="True">
-                        <Setter TargetName="RunDot" Property="Fill" Value="{StaticResource SuccessBrush}" />
-                      </DataTrigger>
-                    </DataTemplate.Triggers>
-                  </DataTemplate>
-                </ItemsControl.ItemTemplate>
-              </ItemsControl>
-            </ScrollViewer>
-          </Border>
-
-          <Grid Grid.Row="4">
-            <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-              <Ellipse Width="6" Height="6" Fill="{Binding StatusColor}" Margin="0,0,7,0" />
-              <TextBlock Text="{Binding StatusText}" FontWeight="SemiBold" />
-              <TextBlock Text="·" Foreground="{StaticResource TertiaryBrush}" Margin="8,0" />
-              <TextBlock Text="{Binding ActiveConnections, StringFormat={}{0} sessions}" Foreground="{StaticResource SecondaryBrush}" />
+              <Ellipse Width="7" Height="7" Fill="{Binding StatusColor}" Margin="0,0,9,0" />
+              <TextBlock Text="{Binding StatusText}" FontSize="18" FontWeight="Medium" />
             </StackPanel>
-             <Button Grid.Column="1" x:Name="BoostButton" Content="Enable boost" MinWidth="132" Height="38"
-                     Style="{StaticResource PrimaryButton}" AutomationProperties.Name="Enable boost"
-                     AutomationProperties.HelpText="Start routing selected applications across the chosen connections" Click="BoostButton_Click" />
+            <Button x:Name="BoostButton" Content="Start" Style="{StaticResource PrimaryButton}" HorizontalAlignment="Right" MinWidth="100" Height="40" Click="BoostButton_Click" AutomationProperties.Name="Start" />
           </Grid>
+          <StackPanel Grid.Row="1" Margin="0,26,0,22">
+            <TextBlock Text="{Binding TrafficScopeText}" Style="{StaticResource CaptionText}" />
+            <Grid Margin="0,6,0,0">
+              <TextBlock Text="{Binding CombinedSpeedText}" FontSize="40" FontWeight="Medium" Typography.NumeralAlignment="Tabular" />
+              <StackPanel HorizontalAlignment="Right" VerticalAlignment="Center">
+                <TextBlock Text="Upload" Style="{StaticResource CaptionText}" HorizontalAlignment="Right" />
+                <TextBlock Text="{Binding CombinedUploadSpeedText}" FontSize="15" Margin="0,5,0,0" HorizontalAlignment="Right" />
+              </StackPanel>
+            </Grid>
+            <Viewbox Height="58" Stretch="Fill" Margin="0,18,0,14" ToolTip="{Binding TrafficHistoryToolTip}">
+              <Grid Width="232" Height="28" ClipToBounds="True">
+                <Line X1="0" Y1="27" X2="232" Y2="27" Stroke="{StaticResource DividerBrush}" StrokeThickness="0.4" />
+                <Polyline Points="{Binding EthernetGraphPoints}" Stroke="{StaticResource EthernetBrush}" StrokeThickness="0.8" StrokeLineJoin="Round" />
+                <Polyline Points="{Binding WifiGraphPoints}" Stroke="{StaticResource WifiBrush}" StrokeThickness="0.8" StrokeLineJoin="Round" />
+              </Grid>
+            </Viewbox>
+            <Grid>
+              <TextBlock Text="{Binding BoostContributionHeadline}" Style="{StaticResource CaptionText}" />
+              <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <TextBlock Text="{Binding SessionTrafficText}" FontWeight="Medium" />
+                <TextBlock Text=" downloaded" Style="{StaticResource CaptionText}" />
+              </StackPanel>
+            </Grid>
+            <Border Background="{StaticResource AccentSoftBrush}" CornerRadius="6" Padding="12,9" Margin="0,14,0,0" Visibility="{Binding HasActionHint, Converter={StaticResource VisibleIf}}">
+              <TextBlock Text="{Binding ActionHint}" TextWrapping="Wrap" />
+            </Border>
+          </StackPanel>
+          <Grid Grid.Row="2" Margin="0,0,0,14">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+              <TextBlock Text="Apps" Style="{StaticResource SectionTitle}" />
+              <TextBlock Text="{Binding AppScanText}" Style="{StaticResource CaptionText}" Margin="12,4,0,0" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+              <Button Content="Scan" Style="{StaticResource QuietButton}" Click="ScanApps_Click" AutomationProperties.Name="Scan installed apps" Margin="0,0,8,0" />
+              <Button Content="+ Add" Click="AddExecutable_Click" AutomationProperties.Name="Add app" />
+            </StackPanel>
+          </Grid>
+          <TextBlock Grid.Row="3" Text="No apps found" Style="{StaticResource CaptionText}" Margin="10,18" Visibility="{Binding HasNoApps, Converter={StaticResource VisibleIf}}" IsHitTestVisible="False" Panel.ZIndex="1" />
+          <ListBox Grid.Row="3" ItemsSource="{Binding Profiles}" Background="Transparent" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling" AutomationProperties.Name="Apps" HorizontalContentAlignment="Stretch">
+            <ListBox.ItemContainerStyle>
+              <Style TargetType="ListBoxItem">
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="Focusable" Value="False" />
+                <Setter Property="Template">
+                  <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                      <ContentPresenter />
+                    </ControlTemplate>
+                  </Setter.Value>
+                </Setter>
+              </Style>
+            </ListBox.ItemContainerStyle>
+            <ListBox.ItemTemplate>
+              <DataTemplate>
+                <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,0,0,1" Padding="10,12" CornerRadius="6">
+                  <Border.Style>
+                    <Style TargetType="Border">
+                      <Setter Property="Background" Value="Transparent" />
+                      <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                          <Setter Property="Background" Value="{StaticResource AccentSoftBrush}" />
+                        </DataTrigger>
+                        <Trigger Property="IsMouseOver" Value="True">
+                          <Setter Property="Background" Value="{StaticResource HoverBrush}" />
+                        </Trigger>
+                      </Style.Triggers>
+                    </Style>
+                  </Border.Style>
+                  <Grid>
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="42" />
+                      <ColumnDefinition />
+                      <ColumnDefinition Width="Auto" />
+                      <ColumnDefinition Width="Auto" />
+                      <ColumnDefinition Width="46" />
+                    </Grid.ColumnDefinitions>
+                    <Border Width="30" Height="30" CornerRadius="7" Background="{StaticResource RaisedBrush}" HorizontalAlignment="Left">
+                      <Grid>
+                        <TextBlock Text="{Binding Initial}" Foreground="{Binding Accent}" FontSize="17" FontWeight="Medium" HorizontalAlignment="Center" VerticalAlignment="Center">
+                          <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                              <Setter Property="Visibility" Value="Collapsed" />
+                              <Style.Triggers>
+                                <DataTrigger Binding="{Binding Icon}" Value="{x:Null}">
+                                  <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                              </Style.Triggers>
+                            </Style>
+                          </TextBlock.Style>
+                        </TextBlock>
+                        <Image Source="{Binding Icon}" Width="26" Height="26" />
+                      </Grid>
+                    </Border>
+                    <TextBlock Grid.Column="1" Text="{Binding Name}" FontSize="14" FontWeight="Medium" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding Subtitle}" />
+                    <TextBlock Grid.Column="2" Text="{Binding RunState}" Style="{StaticResource CaptionText}" Margin="12,0" VerticalAlignment="Center" />
+                    <Button Grid.Column="3" Content="×" Style="{StaticResource QuietButton}" Click="RemoveProfile_Click" ToolTip="Remove" AutomationProperties.Name="Remove app" Margin="0,0,6,0" Visibility="{Binding IsCustom, Converter={StaticResource VisibleIf}}" />
+                    <CheckBox Grid.Column="4" IsChecked="{Binding IsSelected, Mode=TwoWay}" Style="{StaticResource ToggleSwitch}" VerticalAlignment="Center" HorizontalAlignment="Right" Click="ProfileSelection_Click" AutomationProperties.Name="{Binding Name}" />
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
         </Grid>
-
-        <!-- Details are intentionally hidden until requested. -->
-        <Border x:Name="DetailsDrawer" Grid.ColumnSpan="2" Width="390" HorizontalAlignment="Right"
-                Background="#292A30" BorderBrush="#50515B" BorderThickness="1,0,0,0"
-                Padding="23" Visibility="Collapsed" Panel.ZIndex="20">
+        <Border Grid.ColumnSpan="2" Background="#70000000" Panel.ZIndex="19" MouseLeftButtonDown="DrawerBackdrop_Click">
+          <Border.Style>
+            <Style TargetType="Border">
+              <Setter Property="Visibility" Value="Collapsed" />
+              <Style.Triggers>
+                <DataTrigger Binding="{Binding Visibility, ElementName=DetailsDrawer}" Value="Visible">
+                  <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Visibility, ElementName=SettingsDrawer}" Value="Visible">
+                  <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Visibility, ElementName=AddAppDrawer}" Value="Visible">
+                  <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Visibility, ElementName=WifiNetworksDrawer}" Value="Visible">
+                  <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+              </Style.Triggers>
+            </Style>
+          </Border.Style>
+        </Border>
+        <Border x:Name="DetailsDrawer" Grid.ColumnSpan="2" Style="{StaticResource Drawer}" Panel.ZIndex="20">
           <Grid>
             <Grid.RowDefinitions>
-              <RowDefinition Height="Auto" /><RowDefinition Height="18" /><RowDefinition Height="Auto" />
-              <RowDefinition Height="16" /><RowDefinition Height="Auto" /><RowDefinition Height="16" />
-              <RowDefinition Height="*" /><RowDefinition Height="16" /><RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+              <RowDefinition />
+              <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
-            <Grid>
-              <StackPanel><TextBlock Text="Connection details" Style="{StaticResource SectionTitle}" /><TextBlock Text="Local diagnostics" Style="{StaticResource CaptionText}" Margin="0,4,0,0" /></StackPanel>
-              <Button Content="×" HorizontalAlignment="Right" VerticalAlignment="Top" Style="{StaticResource IconButton}"
-                      ToolTip="Close details" AutomationProperties.Name="Close connection details" Click="CloseDrawer_Click" />
+            <Grid Margin="0,0,0,24">
+              <TextBlock Text="Details" Style="{StaticResource SectionTitle}" />
+              <Button Content="×" HorizontalAlignment="Right" Style="{StaticResource IconButton}" Click="CloseDrawer_Click" AutomationProperties.Name="Close details" />
             </Grid>
+            <StackPanel Grid.Row="1" Margin="0,0,0,20">
+              <Grid>
+                <TextBlock Text="Filter" Style="{StaticResource CaptionText}" />
+                <TextBlock Text="{Binding PrerequisiteText}" HorizontalAlignment="Right" />
+              </Grid>
+              <Grid Margin="0,12,0,0">
+                <TextBlock Text="Recovery" Style="{StaticResource CaptionText}" />
+                <TextBlock Text="{Binding RecoveryText}" HorizontalAlignment="Right" />
+              </Grid>
+              <Grid Margin="0,12,0,0">
+                <TextBlock Text="Connections" Style="{StaticResource CaptionText}" />
+                <TextBlock Text="{Binding ActiveConnections}" HorizontalAlignment="Right" />
+              </Grid>
+              <Border Height="1" Background="{StaticResource DividerBrush}" Margin="0,18" />
+              <TextBlock Text="{Binding BoostContributionHeadline}" FontWeight="Medium" />
+              <TextBlock Text="{Binding BoostContributionSummary}" Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,8,0,0" />
+            </StackPanel>
             <Grid Grid.Row="2">
-              <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
-              <TextBlock Text="Network filter" Foreground="{StaticResource SecondaryBrush}" />
-              <TextBlock Text="{Binding PrerequisiteText}" HorizontalAlignment="Right" FontWeight="SemiBold"
-                         TextTrimming="CharacterEllipsis" ToolTip="{Binding PrerequisiteText}" />
-              <TextBlock Grid.Row="1" Text="Ethernet" Foreground="{StaticResource SecondaryBrush}" Margin="0,10,0,0" />
-              <TextBlock Grid.Row="1" Text="{Binding EthernetQualityText}" HorizontalAlignment="Right" FontSize="12" Margin="0,10,0,0"
-                         TextTrimming="CharacterEllipsis"
-                         ToolTip="{Binding SelectedEthernet.DiagnosticName}" />
-              <TextBlock Grid.Row="2" Text="Wi-Fi" Foreground="{StaticResource SecondaryBrush}" Margin="0,10,0,0" />
-              <TextBlock Grid.Row="2" Text="{Binding WifiQualityText}" HorizontalAlignment="Right" FontSize="12" Margin="0,10,0,0"
-                         TextTrimming="CharacterEllipsis"
-                         ToolTip="{Binding SelectedWifi.DiagnosticName}" />
-              <TextBlock Grid.Row="3" Text="Recovery" Foreground="{StaticResource SecondaryBrush}" Margin="0,10,0,0" />
-              <TextBlock Grid.Row="3" Text="Watching" HorizontalAlignment="Right" Foreground="{StaticResource SuccessBrush}" Margin="0,10,0,0" />
-              <TextBlock Grid.Row="4" Text="Route health" Foreground="{StaticResource SecondaryBrush}" Margin="0,10,0,0" />
-              <TextBlock Grid.Row="4" Text="{Binding RouteHealthText}" HorizontalAlignment="Right" FontSize="12" Margin="0,10,0,0"
-                         TextTrimming="CharacterEllipsis" ToolTip="{Binding RouteHealthText}" />
-            </Grid>
-            <Border Grid.Row="4" Background="{StaticResource CanvasBrush}" CornerRadius="8" Padding="14">
-              <StackPanel>
-                <TextBlock Text="This session" Foreground="{StaticResource AccentBrush}" Style="{StaticResource LabelText}" />
-                <TextBlock Text="{Binding BoostContributionHeadline}" FontWeight="SemiBold" FontSize="13" Margin="0,7,0,0" />
-                <TextBlock Text="{Binding BoostContributionSummary}" Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,4,0,12" />
+              <Border x:Name="DiagnosticPanel">
                 <Grid>
-                  <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                  <TextBlock Text="Ethernet" Foreground="{StaticResource SecondaryBrush}" />
-                  <TextBlock Grid.Column="1" Text="{Binding EthernetBoostContribution}" FontWeight="Medium" />
-                </Grid>
-                <Grid Margin="0,8,0,0">
-                  <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                  <TextBlock Text="Wi-Fi" Foreground="{StaticResource SecondaryBrush}" />
-                  <TextBlock Grid.Column="1" Text="{Binding WifiBoostContribution}" FontWeight="Medium" />
-                </Grid>
-              </StackPanel>
-            </Border>
-            <Grid Grid.Row="6">
-              <Border x:Name="DiagnosticPanel" Background="{StaticResource CanvasBrush}" CornerRadius="8" Padding="14">
-                <Grid>
-                  <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="12" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-                  <TextBlock Text="{Binding DiagnosticsSummaryText}" FontWeight="Medium" TextWrapping="Wrap" />
-                  <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                  <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition />
+                  </Grid.RowDefinitions>
+                  <TextBlock Text="{Binding DiagnosticsSummaryText}" FontWeight="Medium" Margin="0,0,0,16" />
+                  <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
                     <ItemsControl ItemsSource="{Binding Diagnostics}">
                       <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                          <Grid Margin="0,0,0,14">
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="8" /><ColumnDefinition /></Grid.ColumnDefinitions>
-                            <Ellipse Width="6" Height="6" Fill="{Binding Accent}" VerticalAlignment="Top" Margin="0,5,0,0" />
-                            <StackPanel Grid.Column="1">
-                              <TextBlock Text="{Binding Title}" FontWeight="Medium" />
-                              <TextBlock Text="{Binding Message}" Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,3,0,0" />
-                            </StackPanel>
-                          </Grid>
+                          <StackPanel Margin="0,0,0,18">
+                            <TextBlock Text="{Binding Title}" Foreground="{Binding Accent}" />
+                            <TextBlock Text="{Binding Message}" Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,5,0,0" />
+                          </StackPanel>
                         </DataTemplate>
                       </ItemsControl.ItemTemplate>
                     </ItemsControl>
                   </ScrollViewer>
                 </Grid>
               </Border>
-              <Border x:Name="ActivityPanel" Background="{StaticResource CanvasBrush}" CornerRadius="8" Padding="12" Visibility="Collapsed">
+              <Border x:Name="ActivityPanel" Visibility="Collapsed">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                   <ItemsControl ItemsSource="{Binding Activity}">
-                    <ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" Foreground="{StaticResource SecondaryBrush}" FontFamily="Cascadia Mono, Consolas" FontSize="10" TextWrapping="Wrap" Margin="0,0,0,8" /></DataTemplate></ItemsControl.ItemTemplate>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate>
+                        <TextBlock Text="{Binding}" FontFamily="Consolas" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,10" />
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
                   </ItemsControl>
                 </ScrollViewer>
               </Border>
             </Grid>
-            <Grid Grid.Row="8">
-              <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-              <Button Content="Check connections" AutomationProperties.Name="Check connections"
-                      AutomationProperties.HelpText="Test both selected connections" Click="RunDiagnostics_Click" />
-              <Button Grid.Column="1" x:Name="ActivityToggleButton" Content="Activity" Style="{StaticResource QuietButton}"
-                      Margin="8,0,0,0" AutomationProperties.Name="Show activity" Click="Activity_Click" />
+            <Grid Grid.Row="3" Margin="0,18,0,0">
+              <Button Content="Check" HorizontalAlignment="Left" Click="RunDiagnostics_Click" AutomationProperties.Name="Check links" />
+              <Button x:Name="ActivityToggleButton" Content="Log" HorizontalAlignment="Right" Style="{StaticResource QuietButton}" Click="Activity_Click" AutomationProperties.Name="Show log" />
             </Grid>
           </Grid>
         </Border>
-
-        <Border x:Name="SettingsDrawer" Grid.ColumnSpan="2" Width="390" HorizontalAlignment="Right"
-                Background="#292A30" BorderBrush="#50515B" BorderThickness="1,0,0,0"
-                Padding="23" Visibility="Collapsed" Panel.ZIndex="20">
+        <Border x:Name="SettingsDrawer" Grid.ColumnSpan="2" Style="{StaticResource Drawer}" Panel.ZIndex="20">
           <Grid>
             <Grid.RowDefinitions>
-              <RowDefinition Height="Auto" /><RowDefinition Height="28" /><RowDefinition Height="Auto" />
-              <RowDefinition Height="22" /><RowDefinition Height="Auto" /><RowDefinition Height="22" />
-              <RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+              <RowDefinition />
+              <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
-            <Grid>
-              <StackPanel><TextBlock Text="Settings" Style="{StaticResource SectionTitle}" /><TextBlock Text="App behavior" Style="{StaticResource CaptionText}" Margin="0,4,0,0" /></StackPanel>
-              <Button Content="×" HorizontalAlignment="Right" VerticalAlignment="Top" Style="{StaticResource IconButton}"
-                      ToolTip="Close settings" AutomationProperties.Name="Close settings" Click="CloseDrawer_Click" />
+            <Grid Margin="0,0,0,24">
+              <TextBlock Text="Settings" Style="{StaticResource SectionTitle}" />
+              <Button Content="×" HorizontalAlignment="Right" Style="{StaticResource IconButton}" Click="CloseDrawer_Click" AutomationProperties.Name="Close settings" />
             </Grid>
-            <Grid Grid.Row="2">
-              <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
               <StackPanel>
-                <TextBlock Text="Keep running in the tray" FontWeight="SemiBold" />
-                <TextBlock Text="Closing the window keeps routing active." Style="{StaticResource CaptionText}" Margin="0,4,16,0" />
+                <Grid Margin="0,0,0,22">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition />
+                    <ColumnDefinition Width="120" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Text="Mode" VerticalAlignment="Center" />
+                  <ComboBox Grid.Column="1" ItemsSource="{Binding RoutingModeOptions}" SelectedItem="{Binding SelectedRoutingModeOption}" Height="36" ToolTip="{Binding RoutingModeDescription}" AutomationProperties.Name="Mode" />
+                </Grid>
+                <Grid>
+                  <TextBlock Text="Wait for app" VerticalAlignment="Center" />
+                  <CheckBox IsChecked="{Binding AutoBoost}" Style="{StaticResource ToggleSwitch}" HorizontalAlignment="Right" Click="AutoBoost_Click" AutomationProperties.Name="Wait for selected apps to open" />
+                </Grid>
+                <Grid Margin="0,22,0,0">
+                  <TextBlock Text="Keep in tray" VerticalAlignment="Center" />
+                  <CheckBox IsChecked="{Binding CloseToTray}" Style="{StaticResource ToggleSwitch}" HorizontalAlignment="Right" AutomationProperties.Name="Keep running when closed" />
+                </Grid>
+                <Expander x:Name="SpeedLimits" Header="Limits" Margin="0,22,0,0" Foreground="{StaticResource SecondaryBrush}" AutomationProperties.Name="Speed limits">
+                  <StackPanel Margin="0,14,0,0">
+                    <TextBlock Text="Ethernet" Style="{StaticResource CaptionText}" Margin="0,0,0,8" />
+                    <ComboBox x:Name="EthernetRouteLimit" ItemsSource="{Binding RouteSpeedOptions}" SelectedValuePath="Mbps" DisplayMemberPath="DisplayName" SelectedValue="{Binding SelectedEthernet.RouteControlMbps, Mode=TwoWay}" SelectionChanged="RouteLimit_SelectionChanged" Height="36" AutomationProperties.Name="Ethernet speed limit" />
+                    <TextBlock Text="Wi-Fi" Style="{StaticResource CaptionText}" Margin="0,14,0,8" />
+                    <ComboBox x:Name="WifiRouteLimit" ItemsSource="{Binding RouteSpeedOptions}" SelectedValuePath="Mbps" DisplayMemberPath="DisplayName" SelectedValue="{Binding SelectedWifi.RouteControlMbps, Mode=TwoWay}" SelectionChanged="RouteLimit_SelectionChanged" Height="36" AutomationProperties.Name="Wi-Fi speed limit" />
+                  </StackPanel>
+                </Expander>
+                <Border Height="1" Background="{StaticResource DividerBrush}" Margin="0,28" />
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition />
+                    <ColumnDefinition Width="120" />
+                  </Grid.ColumnDefinitions>
+                  <TextBlock Text="Updates" VerticalAlignment="Center" />
+                  <ComboBox Grid.Column="1" ItemsSource="{Binding UpdateChannelOptions}" SelectedItem="{Binding SelectedUpdateChannelOption}" Height="36" AutomationProperties.Name="Updates" />
+                </Grid>
+                <Button x:Name="UpdateCheckButton" Content="{Binding UpdateActionText}" HorizontalAlignment="Left" Margin="0,16,0,0" Click="CheckUpdates_Click" AutomationProperties.Name="{Binding UpdateActionText}" />
+                <TextBlock Text="{Binding UpdateStatusText}" Style="{StaticResource CaptionText}" TextWrapping="Wrap" Margin="0,12,0,0" />
               </StackPanel>
-              <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" IsChecked="{Binding CloseToTray, Mode=TwoWay}" VerticalAlignment="Center"
-                        AutomationProperties.Name="Keep running in the tray"
-                        AutomationProperties.HelpText="Keep routing active when this window is closed" />
-            </Grid>
-            <Grid Grid.Row="4">
-              <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="8" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-              <Grid>
-                <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="112" /></Grid.ColumnDefinitions>
-                <StackPanel>
-                  <TextBlock Text="Update channel" FontWeight="SemiBold" />
-                  <TextBlock Text="{Binding UpdateStatusText}" Style="{StaticResource CaptionText}" Margin="0,4,16,0" TextWrapping="Wrap" />
-                </StackPanel>
-                <ComboBox Grid.Column="1" ItemsSource="{Binding UpdateChannelOptions}" SelectedItem="{Binding SelectedUpdateChannelOption, Mode=TwoWay}"
-                          Height="34" VerticalAlignment="Top" AutomationProperties.Name="Update channel"
-                          AutomationProperties.HelpText="Choose which updates DualLink checks for" />
-              </Grid>
-               <Button Grid.Row="2" x:Name="UpdateCheckButton" Content="{Binding UpdateActionText}" HorizontalAlignment="Left"
-                       Style="{StaticResource QuietButton}" Padding="0,5" AutomationProperties.Name="{Binding UpdateActionText}"
-                       Click="CheckUpdates_Click" />
-            </Grid>
-            <Border Grid.Row="6" BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0" Padding="0,16,0,0">
-              <Grid><TextBlock Text="Build" Foreground="{StaticResource SecondaryBrush}" /><TextBlock Text="{Binding VersionText}" HorizontalAlignment="Right" /></Grid>
-            </Border>
-            <TextBlock Grid.Row="8" Text="Updates require confirmation and a matching published SHA-256 checksum."
-                       Style="{StaticResource CaptionText}" TextWrapping="Wrap" />
+            </ScrollViewer>
+            <TextBlock Grid.Row="2" Text="{Binding VersionText}" Style="{StaticResource CaptionText}" />
           </Grid>
         </Border>
-
-        <Border x:Name="AddAppDrawer" Grid.ColumnSpan="2" Width="420" HorizontalAlignment="Right"
-                Background="#292A30" BorderBrush="#50515B" BorderThickness="1,0,0,0"
-                Padding="23" Visibility="Collapsed" Panel.ZIndex="20">
+        <Border x:Name="AddAppDrawer" Grid.ColumnSpan="2" Style="{StaticResource Drawer}" Panel.ZIndex="20">
           <Grid>
             <Grid.RowDefinitions>
-              <RowDefinition Height="Auto" /><RowDefinition Height="24" /><RowDefinition Height="Auto" />
-              <RowDefinition Height="14" /><RowDefinition Height="*" /><RowDefinition Height="18" /><RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+              <RowDefinition />
+              <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
-            <Grid>
-              <StackPanel>
-                <TextBlock Text="Add application" Style="{StaticResource SectionTitle}" />
-                <TextBlock Text="Choose an app that is already open" Style="{StaticResource CaptionText}" Margin="0,4,0,0" />
-              </StackPanel>
-              <Button Content="×" HorizontalAlignment="Right" VerticalAlignment="Top" Style="{StaticResource IconButton}"
-                      ToolTip="Close add application" AutomationProperties.Name="Close add application" Click="CloseDrawer_Click" />
+            <Grid Margin="0,0,0,20">
+              <TextBlock Text="Add app" Style="{StaticResource SectionTitle}" />
+              <Button Content="×" HorizontalAlignment="Right" Style="{StaticResource IconButton}" Click="CloseDrawer_Click" AutomationProperties.Name="Close app picker" />
             </Grid>
-            <TextBlock Grid.Row="2" Text="{Binding RunningApplicationsStatusText}" Foreground="{StaticResource SecondaryBrush}"
-                       TextWrapping="Wrap" TextTrimming="CharacterEllipsis" />
-            <Border Grid.Row="4" Background="{StaticResource CanvasBrush}" BorderBrush="{StaticResource DividerBrush}"
-                    BorderThickness="1" CornerRadius="9" ClipToBounds="True">
-              <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                <ItemsControl ItemsSource="{Binding RunningApplications}">
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                      <Grid Margin="15,12" ToolTip="{Binding ExecutablePath}">
-                        <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                        <StackPanel>
-                          <TextBlock Text="{Binding DisplayName}" FontWeight="Medium" TextTrimming="CharacterEllipsis" ToolTip="{Binding DisplayName}" />
-                          <TextBlock Text="{Binding Subtitle}" Style="{StaticResource CaptionText}" Margin="0,3,12,0"
-                                     TextTrimming="CharacterEllipsis" ToolTip="{Binding Subtitle}" />
-                        </StackPanel>
-                        <Button Grid.Column="1" Content="Add" VerticalAlignment="Center" Padding="12,6"
-                                AutomationProperties.Name="{Binding DisplayName}" AutomationProperties.HelpText="Add this application to DualLink"
-                                Click="AddRunningApp_Click" />
-                      </Grid>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-              </ScrollViewer>
-            </Border>
-            <Grid Grid.Row="6">
-              <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-              <TextBlock Text="Not listed? Choose its executable file." Style="{StaticResource CaptionText}" VerticalAlignment="Center" />
-              <Button Grid.Column="1" Content="Browse…" Margin="14,0,0,0" AutomationProperties.Name="Browse for executable"
-                      AutomationProperties.HelpText="Choose an application executable file" Click="BrowseExecutable_Click" />
-            </Grid>
+            <TextBlock Grid.Row="1" Text="{Binding RunningApplicationsStatusText}" Style="{StaticResource CaptionText}" Margin="0,0,0,18" />
+            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+              <ItemsControl ItemsSource="{Binding RunningApplications}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Grid Margin="0,0,0,16">
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition />
+                        <ColumnDefinition Width="Auto" />
+                      </Grid.ColumnDefinitions>
+                      <TextBlock Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" ToolTip="{Binding ExecutablePath}" Margin="0,0,12,0" />
+                      <Button Grid.Column="1" Content="Add" Click="AddRunningApp_Click" AutomationProperties.Name="{Binding DisplayName}" />
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+            <Button Grid.Row="3" Content="Browse files" HorizontalAlignment="Left" Margin="0,18,0,0" Click="BrowseExecutable_Click" AutomationProperties.Name="Browse for app" />
           </Grid>
         </Border>
-
-        <Border x:Name="WifiNetworksDrawer" Grid.ColumnSpan="2" Width="390" HorizontalAlignment="Right"
-                Background="#292A30" BorderBrush="#50515B" BorderThickness="1,0,0,0"
-                Padding="23" Visibility="Collapsed" Panel.ZIndex="20">
+        <Border x:Name="WifiNetworksDrawer" Grid.ColumnSpan="2" Style="{StaticResource Drawer}" Panel.ZIndex="20">
           <Grid>
             <Grid.RowDefinitions>
-              <RowDefinition Height="Auto" /><RowDefinition Height="20" /><RowDefinition Height="Auto" />
-              <RowDefinition Height="14" /><RowDefinition Height="*" /><RowDefinition Height="18" /><RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+              <RowDefinition />
+              <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
-            <Grid>
-              <StackPanel>
-                <TextBlock Text="Wi-Fi networks" Style="{StaticResource SectionTitle}" />
-                <TextBlock Text="Saved networks connect here" Style="{StaticResource CaptionText}" Margin="0,4,0,0" />
-              </StackPanel>
-              <Button Content="×" HorizontalAlignment="Right" VerticalAlignment="Top" Style="{StaticResource IconButton}"
-                      ToolTip="Close Wi-Fi networks" AutomationProperties.Name="Close Wi-Fi networks" Click="CloseDrawer_Click" />
+            <Grid Margin="0,0,0,20">
+              <TextBlock Text="Wi-Fi" Style="{StaticResource SectionTitle}" />
+              <Button Content="×" HorizontalAlignment="Right" Style="{StaticResource IconButton}" Click="CloseDrawer_Click" AutomationProperties.Name="Close Wi-Fi" />
             </Grid>
-            <Grid Grid.Row="2">
-              <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-              <TextBlock Text="{Binding WifiNetworksStatusText}" Foreground="{StaticResource SecondaryBrush}" VerticalAlignment="Center"
-                         TextTrimming="CharacterEllipsis" ToolTip="{Binding WifiNetworksStatusText}" />
-              <Button Grid.Column="1" Content="Refresh" Style="{StaticResource QuietButton}" Padding="0,4"
-                      AutomationProperties.Name="Refresh Wi-Fi networks" Click="RefreshWifiNetworks_Click" />
+            <Grid Grid.Row="1" Margin="0,0,0,16">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition />
+                <ColumnDefinition Width="Auto" />
+              </Grid.ColumnDefinitions>
+              <TextBlock Text="{Binding WifiNetworksStatusText}" Style="{StaticResource CaptionText}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding WifiNetworksStatusText}" Margin="0,0,8,0" />
+              <Button Grid.Column="1" Content="Refresh" Style="{StaticResource QuietButton}" Click="RefreshWifiNetworks_Click" AutomationProperties.Name="Refresh Wi-Fi" />
             </Grid>
-            <Border Grid.Row="4" Background="{StaticResource CanvasBrush}" BorderBrush="{StaticResource DividerBrush}"
-                    BorderThickness="1" CornerRadius="9" ClipToBounds="True">
-              <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                <ItemsControl ItemsSource="{Binding WifiNetworks}">
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                      <Grid Margin="15,12">
-                        <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                        <StackPanel>
-                          <TextBlock Text="{Binding Name}" FontWeight="Medium" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}" />
-                          <TextBlock Text="{Binding StatusText}" Style="{StaticResource CaptionText}" Margin="0,3,12,0"
-                                     TextTrimming="CharacterEllipsis" ToolTip="{Binding StatusText}" />
-                        </StackPanel>
-                        <Button Grid.Column="1" Content="{Binding ActionText}" VerticalAlignment="Center" Padding="12,6"
-                                IsEnabled="{Binding CanSelect}" AutomationProperties.Name="{Binding ActionText}"
-                                AutomationProperties.HelpText="Change to this Wi-Fi network"
-                                Click="ConnectWifi_Click" />
-                      </Grid>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-              </ScrollViewer>
-            </Border>
-            <Grid Grid.Row="6">
-              <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-              <TextBlock Text="New passwords stay with Windows." Style="{StaticResource CaptionText}" VerticalAlignment="Center" />
-              <Button Grid.Column="1" Content="Windows picker…" Margin="14,0,0,0" AutomationProperties.Name="Open Windows Wi-Fi settings"
-                      AutomationProperties.HelpText="Use Windows to connect to a new Wi-Fi network" Click="OpenWindowsWifi_Click" />
-            </Grid>
+            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+              <ItemsControl ItemsSource="{Binding WifiNetworks}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Grid Margin="0,0,0,18">
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition />
+                        <ColumnDefinition Width="Auto" />
+                      </Grid.ColumnDefinitions>
+                      <StackPanel Margin="0,0,12,0">
+                        <TextBlock Text="{Binding Name}" FontWeight="Medium" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}" />
+                        <TextBlock Text="{Binding StatusText}" Style="{StaticResource CaptionText}" Margin="0,5,0,0" />
+                      </StackPanel>
+                      <Button Grid.Column="1" Content="{Binding ActionText}" IsEnabled="{Binding CanSelect}" VerticalAlignment="Center" Click="ConnectWifi_Click" AutomationProperties.Name="{Binding ActionText}" />
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+            <Button Grid.Row="3" Content="Wi-Fi settings" HorizontalAlignment="Left" Margin="0,18,0,0" Click="OpenWindowsWifi_Click" AutomationProperties.Name="Open Windows Wi-Fi" />
           </Grid>
         </Border>
       </Grid>
