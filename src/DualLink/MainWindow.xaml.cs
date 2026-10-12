@@ -36,6 +36,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private bool _scanningInstalledApps;
     private bool _busy;
     private string _actionHint = string.Empty;
+    private string _routingHint = string.Empty;
+    private readonly Dictionary<string, DateTime> _routedSinceUtc = new(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyDictionary<string, int> _unroutedConnections = new Dictionary<string, int>();
+    private DateTime _nextConnectionAuditUtc = DateTime.MinValue;
+    private DateTime? _singleConnectionSinceUtc;
     private readonly Dictionary<string, int> _enabledRouteLimits = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _settingsWriteGate = new(1, 1);
     private Task _settingsWriteTask = Task.CompletedTask;
@@ -283,8 +288,15 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     public string StatusText { get => _statusText; private set { _statusText = value; OnPropertyChanged(); } }
     public bool IsBusy { get => _busy; private set { _busy = value; OnPropertyChanged(); UpdateButton(); } }
-    public string ActionHint { get => _actionHint; private set { _actionHint = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasActionHint)); } }
+    public string ActionHint { get => _actionHint; private set { _actionHint = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasActionHint)); OnPropertyChanged(nameof(HasRoutingHint)); } }
     public bool HasActionHint => !string.IsNullOrWhiteSpace(ActionHint);
+    /// <summary>Advice about traffic DualLink cannot spread; errors in ActionHint take precedence.</summary>
+    public string RoutingHint
+    {
+        get => _routingHint;
+        private set { if (_routingHint != value) { _routingHint = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasRoutingHint)); } }
+    }
+    public bool HasRoutingHint => !HasActionHint && !string.IsNullOrWhiteSpace(RoutingHint);
     public string RecoveryText => _serviceStatus?.WatchdogRunning == true ? "Ready" : "Off";
     public string SessionTrafficText => _previewMode ? "394 MB" : !_boosting ? "0 MB" : FormatBytes(CurrentRouteStatuses.Sum(x => x.DownloadedBytes));
     public string SelectedAppsText => $"{Profiles.Count(x => x.IsSelected)} selected";
@@ -402,6 +414,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _trafficHistory.Clear();
         _lastServiceSampleUtc = null;
         _routeTrafficBaselines.Clear();
+        _singleConnectionSinceUtc = null;
+        _unroutedConnections = new Dictionary<string, int>();
+        _nextConnectionAuditUtc = DateTime.UtcNow.AddSeconds(2);
+        if (!value) _routedSinceUtc.Clear();
+        RoutingHint = string.Empty;
         foreach (var link in new[] { SelectedEthernet, SelectedWifi }.OfType<LinkInfo>())
         { link.DownloadMbps = 0; link.UploadMbps = 0; }
         OnPropertyChanged(nameof(TrafficScopeText));
@@ -607,6 +624,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 await RefreshServiceStatusAsync();
                 await VerifyBoostHealthAsync();
                 UpdateBoostRates(elapsedSeconds);
+                await RefreshRoutingHintAsync(now);
             }
             else
             {
@@ -845,6 +863,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             var processMatchers = selected.SelectMany(x => x.ProcessMatchers).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
             var service = await EnsureServiceClientAsync();
+            var routedSince = DateTime.UtcNow;
             _serviceStatus = await service.StartAsync(new ServiceProtocol.StartSessionRequest(
                 ToServiceRoutes(routes),
                 ToServiceMode(SelectedRoutingModeOption?.Mode ?? RoutingMode.Smart),
@@ -855,6 +874,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             if (!_serviceStatus.IsRunning || !_serviceStatus.FilterRunning)
                 throw new DualLinkServiceException("The helper did not confirm a running session.");
             SetBoosting(true);
+            _routedSinceUtc.Clear();
+            foreach (var profile in selected) _routedSinceUtc[profile.Name] = routedSince;
             ResetBoostRateBaselines();
             _startFailureCount = 0;
             _nextStartAttemptUtc = DateTime.MinValue;
@@ -1121,9 +1142,14 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 var processMatchers = selected.SelectMany(x => x.ProcessMatchers).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
                 if (_serviceClient is null || _serviceStatus is null)
                     throw new InvalidOperationException("The local network component is not connected.");
+                var routedSince = DateTime.UtcNow;
                 if (_serviceStatus.ProcessMatchers is null || !_serviceStatus.ProcessMatchers.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(processMatchers))
                     _serviceStatus = await _serviceClient.UpdateTargetsAsync(new ServiceProtocol.UpdateTargetsRequest(
                         processMatchers, _serviceStatus.BoundPort, _proxyCredentials.Username, _proxyCredentials.Password));
+                foreach (var name in _routedSinceUtc.Keys.Except(selected.Select(x => x.Name), StringComparer.OrdinalIgnoreCase).ToArray())
+                    _routedSinceUtc.Remove(name);
+                foreach (var profile in selected) _routedSinceUtc.TryAdd(profile.Name, routedSince);
+                _nextConnectionAuditUtc = DateTime.UtcNow;
                 ActionHint = string.Empty;
                 OnPropertyChanged(nameof(SelectedAppsText));
                 UpdateActiveRouteStatus();
@@ -1518,6 +1544,27 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             }
             _routeTrafficBaselines[link.Address] = new RouteTrafficBaseline(status.DownloadedBytes, status.UploadedBytes);
         }
+    }
+
+    private async Task RefreshRoutingHintAsync(DateTime now)
+    {
+        var mbps = (SelectedEthernet?.DownloadMbps ?? 0) + (SelectedWifi?.DownloadMbps ?? 0);
+        if (ActiveConnections == 1 && mbps >= 2) _singleConnectionSinceUtc ??= now;
+        else _singleConnectionSinceUtc = null;
+
+        if (now >= _nextConnectionAuditUtc)
+        {
+            _nextConnectionAuditUtc = now.AddSeconds(3);
+            var targets = Profiles.Where(x => x.IsSelected && x.IsRunning && _routedSinceUtc.ContainsKey(x.Name))
+                .Select(x => new ConnectionAudit.Target(x.Name, x.ExecutablePaths.ToArray(), x.Processes.ToArray(), _routedSinceUtc[x.Name]))
+                .ToArray();
+            try { _unroutedConnections = await Task.Run(() => ConnectionAudit.FindUnroutedConnections(targets)); }
+            catch (Exception ex) { Log($"Connection check failed: {ex.Message}"); }
+        }
+
+        var singleConnection = _singleConnectionSinceUtc is { } since && now - since >= TimeSpan.FromSeconds(8);
+        var jdownloader = Profiles.Any(x => x.IsSelected && x.IsRunning && x.Name == "JDownloader 2");
+        RoutingHint = ConnectionAudit.Describe(_unroutedConnections, singleConnection, jdownloader);
     }
 
     private void Details_Click(object sender, RoutedEventArgs e)

@@ -379,6 +379,41 @@ Console.WriteLine(detectedJDownloader is null
     ? "PASS: JDownloader discovery safely handles an absent installation"
     : "PASS: JDownloader discovery includes its Java download engine");
 
+var routedSince = new DateTime(2026, 10, 12, 7, 41, 18, DateTimeKind.Utc);
+var jdPath = @"C:\Users\test\AppData\Local\JDownloader 2\JDownloader2.exe";
+var auditTargets = new[]
+{
+    new ConnectionAudit.Target("JDownloader 2", [jdPath], ["JDownloader2.exe"], routedSince),
+    new ConnectionAudit.Target("Custom", [], ["custom.exe"], routedSince)
+};
+var auditEntries = new[]
+{
+    new ConnectionAudit.TcpEntry(10, IPAddress.Parse("5.39.224.140"), true, routedSince.AddMinutes(-2)),    // pre-Start download
+    new ConnectionAudit.TcpEntry(10, IPAddress.Parse("170.187.237.205"), true, routedSince.AddMinutes(1)), // routed
+    new ConnectionAudit.TcpEntry(10, IPAddress.Parse("192.168.1.1"), true, routedSince.AddMinutes(-2)),    // LAN bypass
+    new ConnectionAudit.TcpEntry(10, IPAddress.Parse("8.8.8.8"), false, routedSince.AddMinutes(-2)),       // not established
+    new ConnectionAudit.TcpEntry(20, IPAddress.Parse("1.1.1.1"), true, routedSince.AddMinutes(-1)),        // name-only match
+    new ConnectionAudit.TcpEntry(30, IPAddress.Parse("1.0.0.1"), true, routedSince.AddMinutes(-1))         // unselected app
+};
+var unrouted = ConnectionAudit.Classify(auditTargets, auditEntries, pid => pid switch
+{
+    10 => jdPath,
+    20 => @"D:\Tools\custom.exe",
+    _ => @"C:\Other\other.exe"
+});
+if (unrouted.GetValueOrDefault("JDownloader 2") != 1 || unrouted.GetValueOrDefault("Custom") != 1 || unrouted.Count != 2)
+    throw new Exception("Connection audit misclassified connections opened before Start.");
+if (ConnectionAudit.IsInternetAddress(IPAddress.Parse("172.20.10.1")) || ConnectionAudit.IsInternetAddress(IPAddress.Parse("169.254.1.1")) ||
+    !ConnectionAudit.IsInternetAddress(IPAddress.Parse("172.32.0.1")))
+    throw new Exception("Connection audit did not match the filter's LAN bypass ranges.");
+if (!ConnectionAudit.Describe(unrouted, false, true).StartsWith("Custom and JDownloader 2 have 2 connections", StringComparison.Ordinal) ||
+    !ConnectionAudit.Describe(new Dictionary<string, int>(), true, true).Contains("Max. chunks per download", StringComparison.Ordinal) ||
+    ConnectionAudit.Describe(new Dictionary<string, int>(), false, true).Length != 0)
+    throw new Exception("Routing advice did not describe the detected situation.");
+var liveAudit = ConnectionAudit.FindUnroutedConnections([new ConnectionAudit.Target("None", [@"C:\missing\none.exe"], ["none.exe"], DateTime.UtcNow)]);
+if (liveAudit.Count != 0) throw new Exception("Live TCP table audit matched an absent executable.");
+Console.WriteLine("PASS: connections opened before Start are found and explained");
+
 const string releaseJson = """
 {
   "tag_name": "v3.1.0",
