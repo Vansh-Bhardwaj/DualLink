@@ -102,7 +102,15 @@
           <StackPanel Grid.Row="1" Margin="0,26,0,22">
             <TextBlock Text="{Binding TrafficScopeText}" Style="{StaticResource CaptionText}" />
             <Grid Margin="0,6,0,0">
-              <TextBlock Text="{Binding CombinedSpeedText}" FontSize="40" FontWeight="Medium" Typography.NumeralAlignment="Tabular" />
+              <StackPanel>
+                <TextBlock Text="{Binding CombinedSpeedText}" FontSize="40" FontWeight="Medium" Typography.NumeralAlignment="Tabular" />
+                <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                  <TextBlock Text="{Binding SpeedStatsText}" Style="{StaticResource CaptionText}" VerticalAlignment="Center" Typography.NumeralAlignment="Tabular" ToolTip="Average and highest download speed of your selected apps since Start" />
+                  <Border Background="{StaticResource AccentSoftBrush}" CornerRadius="10" Padding="9,3" Margin="12,0,0,0" Visibility="{Binding HasCombinedGain, Converter={StaticResource VisibleIf}}" ToolTip="How much more was downloaded than the busier connection carried by itself">
+                    <TextBlock Text="{Binding CombinedGainText}" FontSize="12" FontWeight="Medium" Foreground="{StaticResource FocusBrush}" />
+                  </Border>
+                </StackPanel>
+              </StackPanel>
               <StackPanel HorizontalAlignment="Right" VerticalAlignment="Center">
                 <TextBlock Text="Upload" Style="{StaticResource CaptionText}" HorizontalAlignment="Right" />
                 <TextBlock Text="{Binding CombinedUploadSpeedText}" FontSize="15" Margin="0,5,0,0" HorizontalAlignment="Right" />
@@ -111,6 +119,8 @@
             <Viewbox Height="58" Stretch="Fill" Margin="0,18,0,14" ToolTip="{Binding TrafficHistoryToolTip}">
               <Grid Width="232" Height="28" ClipToBounds="True">
                 <Line X1="0" Y1="27" X2="232" Y2="27" Stroke="{StaticResource DividerBrush}" StrokeThickness="0.4" />
+                <Polygon Points="{Binding EthernetAreaPoints}" Fill="{StaticResource EthernetBrush}" Opacity="0.22" />
+                <Polygon Points="{Binding WifiAreaPoints}" Fill="{StaticResource WifiBrush}" Opacity="0.22" />
                 <Polyline Points="{Binding EthernetGraphPoints}" Stroke="{StaticResource EthernetBrush}" StrokeThickness="0.8" StrokeLineJoin="Round" />
                 <Polyline Points="{Binding WifiGraphPoints}" Stroke="{StaticResource WifiBrush}" StrokeThickness="0.8" StrokeLineJoin="Round" />
               </Grid>

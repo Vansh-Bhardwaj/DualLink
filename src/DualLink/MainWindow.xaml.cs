@@ -41,6 +41,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private IReadOnlyDictionary<string, int> _unroutedConnections = new Dictionary<string, int>();
     private DateTime _nextConnectionAuditUtc = DateTime.MinValue;
     private DateTime? _singleConnectionSinceUtc;
+    private double _peakMbps;
+    private double _activeMbpsTotal;
+    private int _activeMbpsSamples;
     private readonly Dictionary<string, int> _enabledRouteLimits = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _settingsWriteGate = new(1, 1);
     private Task _settingsWriteTask = Task.CompletedTask;
@@ -297,13 +300,31 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         private set { if (_routingHint != value) { _routingHint = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasRoutingHint)); } }
     }
     public bool HasRoutingHint => !HasActionHint && !string.IsNullOrWhiteSpace(RoutingHint);
+    public string SpeedStatsText => _previewMode ? "Average 362.8 · Peak 421.5 Mbps"
+        : !_boosting || _peakMbps < 0.1 ? string.Empty
+        : $"Average {_activeMbpsTotal / Math.Max(1, _activeMbpsSamples):0.0} · Peak {_peakMbps:0.0} Mbps";
+    /// <summary>Session bytes compared with what the busier link carried by itself.</summary>
+    public string CombinedGainText
+    {
+        get
+        {
+            if (_previewMode) return "2.1× faster than Wi-Fi alone";
+            if (!_boosting) return string.Empty;
+            var used = CurrentRouteStatuses.Where(x => x.DownloadedBytes > 0).ToArray();
+            if (used.Length < 2) return string.Empty;
+            var top = used.MaxBy(x => x.DownloadedBytes);
+            var gain = used.Sum(x => (double)x.DownloadedBytes) / top.DownloadedBytes;
+            return gain < 1.05 ? string.Empty : $"{gain:0.0}× faster than {top.Name} alone";
+        }
+    }
+    public bool HasCombinedGain => !string.IsNullOrEmpty(CombinedGainText);
     public string RecoveryText => _serviceStatus?.WatchdogRunning == true ? "Ready" : "Off";
     public string SessionTrafficText => _previewMode ? "394 MB" : !_boosting ? "0 MB" : FormatBytes(CurrentRouteStatuses.Sum(x => x.DownloadedBytes));
     public string SelectedAppsText => $"{Profiles.Count(x => x.IsSelected)} selected";
     public string EthernetLinkState => GetLinkState(SelectedEthernet);
     public string WifiLinkState => GetLinkState(SelectedWifi);
-    public string EthernetUsageText => GetLinkUsage(SelectedEthernet, "126 MB");
-    public string WifiUsageText => GetLinkUsage(SelectedWifi, "268 MB");
+    public string EthernetUsageText => GetLinkUsage(SelectedEthernet, "126 MB · 32%");
+    public string WifiUsageText => GetLinkUsage(SelectedWifi, "268 MB · 68%");
     public Brush StatusColor { get => _statusColor; private set { _statusColor = value; OnPropertyChanged(); } }
     public string PrerequisiteText { get => _prerequisiteText; private set { _prerequisiteText = value; OnPropertyChanged(); } }
     public int ActiveConnections => _previewMode ? 27 : _serviceStatus?.ActiveConnections ?? 0;
@@ -313,8 +334,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public string TrafficHistoryToolTip => _boosting
         ? "Last minute of selected application traffic · Ethernet and Wi-Fi"
         : "Last minute of total adapter traffic · Ethernet and Wi-Fi";
+    // Stacked: Ethernet fills from the baseline, Wi-Fi sits on top, so the
+    // outer edge is the combined speed.
     public PointCollection EthernetGraphPoints => BuildTrafficPoints(x => x.EthernetMbps);
-    public PointCollection WifiGraphPoints => BuildTrafficPoints(x => x.WifiMbps);
+    public PointCollection WifiGraphPoints => BuildTrafficPoints(x => x.EthernetMbps + x.WifiMbps);
+    public PointCollection EthernetAreaPoints => BuildTrafficArea(_ => 0, x => x.EthernetMbps);
+    public PointCollection WifiAreaPoints => BuildTrafficArea(x => x.EthernetMbps, x => x.EthernetMbps + x.WifiMbps);
     public string DiagnosticsSummaryText
     {
         get => _diagnosticsSummaryText;
@@ -395,14 +420,17 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if (_previewMode) return "In use";
         var route = CurrentRouteStatuses.FirstOrDefault(x => x.Address == link.Address);
         if (_boosting && !route.IsHealthy) return "Reconnecting";
-        return route.ActiveConnections > 0 ? "In use" : "Ready";
+        var state = route.ActiveConnections > 0 ? "In use" : "Ready";
+        return _boosting && route.ConnectLatencyMs is { } latency ? $"{state} · {latency:0} ms" : state;
     }
 
     private string GetLinkUsage(LinkInfo? link, string preview)
     {
         if (_previewMode) return preview;
         if (link is null || !_boosting) return "0 MB";
-        return FormatBytes(CurrentRouteStatuses.Where(x => x.Address == link.Address).Sum(x => x.DownloadedBytes));
+        var downloaded = CurrentRouteStatuses.Where(x => x.Address == link.Address).Sum(x => x.DownloadedBytes);
+        var total = CurrentRouteStatuses.Sum(x => x.DownloadedBytes);
+        return total > 0 ? $"{FormatBytes(downloaded)} · {downloaded * 100d / total:0}%" : FormatBytes(downloaded);
     }
 
     private void SetBoosting(bool value)
@@ -414,6 +442,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _trafficHistory.Clear();
         _lastServiceSampleUtc = null;
         _routeTrafficBaselines.Clear();
+        _peakMbps = 0;
+        _activeMbpsTotal = 0;
+        _activeMbpsSamples = 0;
         _singleConnectionSinceUtc = null;
         _unroutedConnections = new Dictionary<string, int>();
         _nextConnectionAuditUtc = DateTime.UtcNow.AddSeconds(2);
@@ -423,8 +454,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         { link.DownloadMbps = 0; link.UploadMbps = 0; }
         OnPropertyChanged(nameof(TrafficScopeText));
         OnPropertyChanged(nameof(TrafficHistoryToolTip));
-        OnPropertyChanged(nameof(EthernetGraphPoints));
-        OnPropertyChanged(nameof(WifiGraphPoints));
+        NotifyTrafficGraph();
     }
 
     private void LoadProfilesAndSettings()
@@ -624,6 +654,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 await RefreshServiceStatusAsync();
                 await VerifyBoostHealthAsync();
                 UpdateBoostRates(elapsedSeconds);
+                RecordSpeedStats();
                 await RefreshRoutingHintAsync(now);
             }
             else
@@ -703,8 +734,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             (SelectedWifi?.DownloadMbps ?? 0) + (SelectedWifi?.UploadMbps ?? 0)));
         while (_trafficHistory.TryPeek(out var oldest) && now - oldest.TimestampUtc > TimeSpan.FromMinutes(1))
             _trafficHistory.Dequeue();
-        OnPropertyChanged(nameof(EthernetGraphPoints));
-        OnPropertyChanged(nameof(WifiGraphPoints));
+        NotifyTrafficGraph();
     }
 
     private void ApplyDeviceRates(LinkInfo[] links, IReadOnlyDictionary<string, (long Received, long Sent)> rates, double elapsedSeconds)
@@ -731,8 +761,29 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             var wifi = 118 + Math.Cos(i * 0.23) * 35 + (i % 7) * 3.2;
             _trafficHistory.Enqueue(new TrafficSample(now.AddSeconds(i - 41), Math.Max(0, ethernet), Math.Max(0, wifi)));
         }
+        NotifyTrafficGraph();
+    }
+
+    private void NotifyTrafficGraph()
+    {
         OnPropertyChanged(nameof(EthernetGraphPoints));
         OnPropertyChanged(nameof(WifiGraphPoints));
+        OnPropertyChanged(nameof(EthernetAreaPoints));
+        OnPropertyChanged(nameof(WifiAreaPoints));
+    }
+
+    private static double TrafficGraphMaximum(TrafficSample[] samples) =>
+        Math.Max(1d, samples.Max(x => x.EthernetMbps + x.WifiMbps));
+
+    /// <summary>Closed band between two series, for a filled stacked chart.</summary>
+    private PointCollection BuildTrafficArea(Func<TrafficSample, double> lower, Func<TrafficSample, double> upper)
+    {
+        var top = BuildTrafficPoints(upper);
+        var bottom = BuildTrafficPoints(lower);
+        var area = new PointCollection(top.Count * 2);
+        foreach (var point in top) area.Add(point);
+        for (var i = bottom.Count - 1; i >= 0; i--) area.Add(bottom[i]);
+        return area;
     }
 
     private PointCollection BuildTrafficPoints(Func<TrafficSample, double> selector)
@@ -740,7 +791,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         var samples = _trafficHistory.ToArray();
         var points = new PointCollection();
         if (samples.Length == 0) return points;
-        var maximum = Math.Max(1d, samples.Max(x => Math.Max(x.EthernetMbps, x.WifiMbps)));
+        var maximum = TrafficGraphMaximum(samples);
         var first = samples[0].TimestampUtc;
         var last = samples[^1].TimestampUtc;
         var durationSeconds = Math.Max(1d, (last - first).TotalSeconds);
@@ -1409,6 +1460,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         OnPropertyChanged(nameof(EthernetUsageText));
         OnPropertyChanged(nameof(WifiUsageText));
         OnPropertyChanged(nameof(SessionTrafficText));
+        OnPropertyChanged(nameof(SpeedStatsText));
+        OnPropertyChanged(nameof(CombinedGainText));
+        OnPropertyChanged(nameof(HasCombinedGain));
     }
 
     private static string FormatBytes(long bytes)
@@ -1544,6 +1598,15 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             }
             _routeTrafficBaselines[link.Address] = new RouteTrafficBaseline(status.DownloadedBytes, status.UploadedBytes);
         }
+    }
+
+    private void RecordSpeedStats()
+    {
+        var mbps = (SelectedEthernet?.DownloadMbps ?? 0) + (SelectedWifi?.DownloadMbps ?? 0);
+        if (mbps < 0.5) return;
+        _peakMbps = Math.Max(_peakMbps, mbps);
+        _activeMbpsTotal += mbps;
+        _activeMbpsSamples++;
     }
 
     private async Task RefreshRoutingHintAsync(DateTime now)
