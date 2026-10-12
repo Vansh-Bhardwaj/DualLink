@@ -4,7 +4,9 @@ All notable DualLink changes are recorded here. Versions follow semantic version
 
 ## 4.2.0-dev.1 - 2026-10-12
 
-- Development checkpoint for clearer routing feedback when an app's traffic is not spread across both links.
+- Explains when a selected app's downloads are not reaching DualLink: connections opened before **Start** stay on normal routing until the download is paused and resumed, and a single connection can only use one link. JDownloader users are pointed to its chunk setting.
+- Stacks Ethernet and Wi-Fi in the speed graph, adds average and peak speed, shows how much faster both connections were than the busier one alone, and gives each connection's share and response time.
+- Uses plain language throughout the main window, settings, and details, with units on every speed and a guide line for first-time use.
 
 ## 4.1.0 - 2026-10-07
 
