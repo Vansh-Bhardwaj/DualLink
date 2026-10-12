@@ -39,7 +39,7 @@ public sealed class AppProfile : INotifyPropertyChanged
         }
     }
 
-    [JsonIgnore] public string RunState => IsRunning ? "Open" : "Closed";
+    [JsonIgnore] public string RunState => IsRunning ? "Running" : "Not running";
     [JsonIgnore] public string Initial => Name[..1].ToUpperInvariant();
     [JsonIgnore] public System.Windows.Media.ImageSource? Icon
     {
@@ -113,7 +113,7 @@ public sealed class LinkInfo : INotifyPropertyChanged
         }
     }
 
-    public string SpeedText => $"↓ {DownloadMbps:0.0}  ↑ {UploadMbps:0.0}";
+    public string SpeedText => $"↓ {DownloadMbps:0.0}  ↑ {UploadMbps:0.0} Mbps";
     public string WeightText => Weight == 0 ? "Off" : Weight == 1 ? "1 share" : $"{Weight} shares";
     public int SpeedLimitMbps => RouteControlMbps >= FullSpeedControlMbps ? 0 : RouteControlMbps;
     public string RouteControlText => RouteControlMbps <= 0 ? "Off" : SpeedLimitMbps == 0 ? "Full" : $"{SpeedLimitMbps} Mbps";

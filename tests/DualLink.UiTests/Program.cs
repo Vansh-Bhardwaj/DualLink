@@ -58,7 +58,7 @@ internal static class Program
 
                 Invoke(window, "SetBoosting", false);
                 var history = Get(window, "_trafficHistory")!;
-                if ((int)history.GetType().GetProperty("Count")!.GetValue(history)! != 0 || window.TrafficScopeText != "Device speed")
+                if ((int)history.GetType().GetProperty("Count")!.GetValue(history)! != 0 || window.TrafficScopeText != "Speed of this PC")
                     throw new Exception("Device and app history were mixed after stopping.");
                 Console.WriteLine("PASS: changing traffic scope clears old history");
 

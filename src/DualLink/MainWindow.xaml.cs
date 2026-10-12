@@ -194,9 +194,9 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     };
     public ObservableCollection<RoutingModeOption> RoutingModeOptions { get; } = new()
     {
-        new RoutingModeOption { Mode = RoutingMode.Balanced, DisplayName = "Both", Description = "Share new connections" },
-        new RoutingModeOption { Mode = RoutingMode.Smart, DisplayName = "Safe", Description = "Keep each server on one link" },
-        new RoutingModeOption { Mode = RoutingMode.Failover, DisplayName = "Backup", Description = "Ethernet first, Wi-Fi if it fails" }
+        new RoutingModeOption { Mode = RoutingMode.Balanced, DisplayName = "Both", Description = "Spread downloads across both connections" },
+        new RoutingModeOption { Mode = RoutingMode.Smart, DisplayName = "Safe", Description = "Keep each website on one connection, for sites that dislike switching" },
+        new RoutingModeOption { Mode = RoutingMode.Failover, DisplayName = "Backup", Description = "Use Ethernet, and switch to Wi-Fi only if it drops" }
     };
     public ObservableCollection<UpdateChannelOption> UpdateChannelOptions { get; } = new()
     {
@@ -300,6 +300,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         private set { if (_routingHint != value) { _routingHint = value; OnPropertyChanged(); OnPropertyChanged(nameof(HasRoutingHint)); } }
     }
     public bool HasRoutingHint => !HasActionHint && !string.IsNullOrWhiteSpace(RoutingHint);
+    /// <summary>The next step for someone who has not started yet.</summary>
+    public string GuideText => _previewMode || _boosting || HasActionHint ? string.Empty
+        : _armed ? "DualLink will start as soon as one of the selected apps opens."
+        : !Profiles.Any(x => x.IsSelected) ? "Turn on the apps you want to speed up, then press Start."
+        : "Press Start to spread these apps' downloads across both connections. Downloads already running keep their current connection until restarted.";
+    public bool HasGuideText => !string.IsNullOrEmpty(GuideText);
     public string SpeedStatsText => _previewMode ? "Average 362.8 · Peak 421.5 Mbps"
         : !_boosting || _peakMbps < 0.1 ? string.Empty
         : $"Average {_activeMbpsTotal / Math.Max(1, _activeMbpsSamples):0.0} · Peak {_peakMbps:0.0} Mbps";
@@ -330,7 +336,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     public int ActiveConnections => _previewMode ? 27 : _serviceStatus?.ActiveConnections ?? 0;
     public string CombinedSpeedText => $"{(SelectedEthernet?.DownloadMbps ?? 0) + (SelectedWifi?.DownloadMbps ?? 0):0.0} Mbps";
     public string CombinedUploadSpeedText => $"{(SelectedEthernet?.UploadMbps ?? 0) + (SelectedWifi?.UploadMbps ?? 0):0.0} Mbps";
-    public string TrafficScopeText => _boosting || _previewMode ? "App speed" : "Device speed";
+    public string TrafficScopeText => _boosting || _previewMode ? "Speed of selected apps" : "Speed of this PC";
     public string TrafficHistoryToolTip => _boosting
         ? "Last minute of selected application traffic · Ethernet and Wi-Fi"
         : "Last minute of total adapter traffic · Ethernet and Wi-Fi";
@@ -351,14 +357,14 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         get
         {
-            if (_previewMode) return "Both links used";
+            if (_previewMode) return "Both connections in use";
             if (!_boosting) return "Off";
             var used = CurrentRouteStatuses.Where(x => x.SuccessfulConnections > 0 || x.DownloadedBytes > 0 || x.UploadedBytes > 0).ToArray();
             return used.Length switch
             {
-                > 1 => "Both links used",
-                1 => $"{used[0].Name} used",
-                _ => "Waiting for traffic"
+                > 1 => "Both connections in use",
+                1 => $"Only {used[0].Name} in use so far",
+                _ => "Waiting for a download"
             };
         }
     }
@@ -1547,7 +1553,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             CurrentRouteStatuses.Any(x => x.Address == SelectedWifi.Address && x.AcceptingNewConnections && x.IsHealthy);
         StatusText = ethernetEnabled && !wifiEnabled ? "Ethernet only" :
             wifiEnabled && !ethernetEnabled ? "Wi-Fi only" :
-            !ethernetEnabled && !wifiEnabled ? "Reconnecting" : ActiveConnections == 0 ? "Waiting for traffic" : "On";
+            !ethernetEnabled && !wifiEnabled ? "Reconnecting" : ActiveConnections == 0 ? "Waiting for a download" : "On";
         StatusColor = (Brush)FindResource(!ethernetEnabled && !wifiEnabled ? "WarningBrush" : "SuccessBrush");
         OnPropertyChanged(nameof(RouteHealthText));
     }
@@ -1655,16 +1661,16 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             var prerequisite = await _proxiFyre.CheckPrerequisitesAsync();
             Diagnostics.Add(new ConnectionCheckResult(
-                "Filter",
-                prerequisite.Installed ? "Ready" : "Run setup again",
+                "DualLink driver",
+                prerequisite.Installed ? "Ready" : "Reinstall DualLink to repair it",
                 prerequisite.Installed ? DiagnosticState.Good : DiagnosticState.Problem));
 
             var linksAreIndependent = SelectedEthernet is not null && SelectedWifi is not null &&
                 !SelectedEthernet.Id.Equals(SelectedWifi.Id, StringComparison.OrdinalIgnoreCase) &&
                 !SelectedEthernet.Address.Equals(SelectedWifi.Address, StringComparison.OrdinalIgnoreCase);
             Diagnostics.Add(new ConnectionCheckResult(
-                "Links",
-                linksAreIndependent ? "2 connected" : "Connect a second link",
+                "Connections",
+                linksAreIndependent ? "2 connected" : "Connect a second network, such as a phone hotspot",
                 linksAreIndependent ? DiagnosticState.Good : DiagnosticState.Notice));
 
             var connectivity = await Task.WhenAll(
@@ -1681,21 +1687,21 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 var routeMessage = enabledRouteCount == 1 && contributing.Length == 1
                     ? $"{contributing[0].Name} used"
                     : contributing.Length >= 2
-                        ? "Both links used"
+                        ? "Both connections in use"
                         : contributing.Length == 1
                             ? $"{contributing[0].Name} used"
-                            : "No app traffic yet";
+                            : "No downloads from selected apps yet";
                 var routeState = (enabledRouteCount == 1 && contributing.Length == 1) || contributing.Length >= 2
                     ? DiagnosticState.Good
                     : DiagnosticState.Notice;
                 Diagnostics.Add(new ConnectionCheckResult(
-                    "App traffic",
+                    "Selected apps",
                     routeMessage,
                     routeState));
             }
             else
             {
-                Diagnostics.Add(new ConnectionCheckResult("App traffic", "Off", DiagnosticState.Notice));
+                Diagnostics.Add(new ConnectionCheckResult("Selected apps", "Off", DiagnosticState.Notice));
             }
 
             var problems = Diagnostics.Count(x => x.State == DiagnosticState.Problem);
@@ -2184,6 +2190,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
         if (name == nameof(SelectedAppsText)) PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AppScanText)));
+        if (name is nameof(SelectedAppsText) or nameof(StatusText) or nameof(HasActionHint))
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(GuideText)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasGuideText)));
+        }
     }
 
     private readonly record struct TrafficSample(DateTime TimestampUtc, double EthernetMbps, double WifiMbps);

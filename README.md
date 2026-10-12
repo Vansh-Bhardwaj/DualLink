@@ -59,7 +59,7 @@ DualLink only filters processes the user selects. The desktop interface runs wit
 
 One TCP connection cannot be split across two links without a remote aggregation server. The speed benefit comes from distributing the multiple connections opened by launchers and browsers. Live game traffic is intentionally not a target.
 
-DualLink routes IPv4 TCP. Its explicit filter rule blocks selected-app IPv6 so applications can fall back to IPv4; an IPv6-only destination cannot work through this mode. UDP, including QUIC and most live game traffic, is outside the routed path. **Open** means the app process exists, not that it is sending routed traffic. Link byte counts are the evidence of actual use.
+DualLink routes IPv4 TCP. Its explicit filter rule blocks selected-app IPv6 so applications can fall back to IPv4; an IPv6-only destination cannot work through this mode. UDP, including QUIC and most live game traffic, is outside the routed path. **Running** means the app process exists, not that it is sending routed traffic. Link byte counts are the evidence of actual use.
 
 The detection catalog includes Steam, Epic Games, Riot Games, Battle.net, EA app, JDownloader, Chrome, Edge, Firefox, Brave, Opera, Internet Download Manager, and Free Download Manager. Registrations, known folders, or a running executable must provide an existing path. Portable or unusual installations can be added manually. Detection is not a certification that every app version or server benefits from dual-link routing.
 
