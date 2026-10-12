@@ -2,6 +2,10 @@
 
 All notable DualLink changes are recorded here. Versions follow semantic versioning.
 
+## 4.2.0-dev.1 - 2026-10-12
+
+- Development checkpoint for clearer routing feedback when an app's traffic is not spread across both links.
+
 ## 4.1.0 - 2026-10-07
 
 - Replaces the dashboard with a compact links, speed, and apps view, short labels, real executable icons, and on-demand settings.
