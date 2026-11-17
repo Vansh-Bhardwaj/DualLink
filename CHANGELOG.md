@@ -2,6 +2,10 @@
 
 All notable DualLink changes are recorded here. Versions follow semantic versioning.
 
+## 5.0.0-dev.1 - 2026-11-17
+
+- Begins the DualLink 5 rewrite: a fully native app with any number of connections, system-wide combining, and a new interface.
+
 ## 4.2.0-dev.1 - 2026-10-12
 
 - Explains when a selected app's downloads are not reaching DualLink: connections opened before **Start** stay on normal routing until the download is paused and resumed, and a single connection can only use one link. JDownloader users are pointed to its chunk setting.
