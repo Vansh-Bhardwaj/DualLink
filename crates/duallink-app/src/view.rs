@@ -12,6 +12,7 @@ use crate::theme::{Theme, theme};
 use duallink_core::{Config, EngineState, LinkInfo, LinkKind, LinkStatus, Mode, Scope, Status};
 use rune::tok::{TextStyle, motion, type_};
 use rune::{Align, Color, Cx, El, FileDialogOptions, LineCap, Path, ScrollSpec, Shape, Tx, canvas, col, el, row, text};
+use rune_kit::{ScrollBar, ScrollBarStyle};
 use std::sync::atomic::Ordering;
 
 const MODES: [(Mode, &str); 3] = [(Mode::Smart, "Smart"), (Mode::Balanced, "Even"), (Mode::Backup, "Backup")];
@@ -362,7 +363,7 @@ fn sidebar(s: &Ui, t: &Theme, fit: Fit) -> El {
         }
         bar = bar
             .child(text("Connections").key("heading").font(t.ty.section).color(t.ink_faint).self_start().ml(10.0).mt(18.0).mb(4.0))
-            .child(el().key("scroll").w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(list));
+            .child(el().key("scroll").w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(list).scroll_bar_styled(ScrollBarStyle::neutral(t.dark)));
     }
     bar.child(master(s, t, fit.compact))
 }
@@ -558,7 +559,8 @@ fn main_panel(s: &Ui, t: &Theme, fit: Fit) -> El {
                 .min_h(0.0)
                 .scroll(ScrollSpec { stick_bottom: false })
                 .scroll_edge_fade(16.0)
-                .child(content.w_full().px(if fit.narrow { 18.0 } else { 28.0 }).pt(4.0).pb(28.0)),
+                .child(content.w_full().px(if fit.narrow { 18.0 } else { 28.0 }).pt(4.0).pb(28.0))
+                .scroll_bar_styled(ScrollBarStyle::neutral(t.dark)),
         )
 }
 
