@@ -106,6 +106,9 @@ pub struct Config {
     /// Stop routed programs using QUIC so their traffic falls back to connections DualLink
     /// can spread across links.
     pub steer_quic: bool,
+    /// Turn away routed programs' IPv6 connections so they retry over IPv4, which is the
+    /// only kind DualLink spreads across links.
+    pub prefer_ipv4: bool,
 }
 
 impl Default for Config {
@@ -118,6 +121,7 @@ impl Default for Config {
             excluded: Vec::new(),
             links: Vec::new(),
             steer_quic: true,
+            prefer_ipv4: true,
         }
     }
 }
