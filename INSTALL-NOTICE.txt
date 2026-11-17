@@ -1,9 +1,13 @@
 DUALLINK INSTALLATION NOTICE
 
 DualLink is a Windows networking utility that requires administrator privileges.
-It installs or uses the ProxiFyre service and the Windows Packet Filter kernel driver,
-temporarily changes ProxiFyre's configuration while boosting, and restores the previous
-configuration when disarmed or exited.
+It installs a background service that starts with Windows and the Windows Packet Filter
+kernel driver. While combining is on, the service watches outgoing connections on the
+chosen network adapters and carries them over the connections you pick. Turning combining
+off, stopping the service, or uninstalling returns all traffic to normal.
+
+Setup adds a Windows Firewall rule that lets the DualLink service accept the connections
+it carries. Uninstalling removes the service and the rule.
 
 The bundled Windows Packet Filter driver is licensed for personal, educational, and
 nonprofit use. Commercial use requires a separate license from NT Kernel Resources:
