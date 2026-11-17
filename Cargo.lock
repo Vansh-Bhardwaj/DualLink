@@ -829,7 +829,7 @@ checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 
 [[package]]
 name = "duallink-app"
-version = "5.0.0-dev.2"
+version = "5.0.0-dev.3"
 dependencies = [
  "duallink-core",
  "rune",
@@ -843,7 +843,7 @@ dependencies = [
 
 [[package]]
 name = "duallink-core"
-version = "5.0.0-dev.2"
+version = "5.0.0-dev.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -854,7 +854,7 @@ dependencies = [
 
 [[package]]
 name = "duallink-service"
-version = "5.0.0-dev.2"
+version = "5.0.0-dev.3"
 dependencies = [
  "duallink-core",
  "ndisapi",

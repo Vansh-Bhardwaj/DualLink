@@ -2,6 +2,14 @@
 
 All notable DualLink changes are recorded here. Versions follow semantic versioning.
 
+## 5.0.0-dev.3 - 2026-11-17
+
+- Smart sharing now spreads a download or speed test that opens many connections to one server across the links. Before, it kept every connection to a server on the link it used first, so those never combined. Sign-ins, which connect one after another, still keep one address.
+- Activity no longer counts the service's own outgoing connections as left alone.
+- The on/off control is a solid indigo pill with a standard switch, replacing the liquid-metal edge.
+- The overview shows a card per connection with its speed, share of traffic and response time.
+- Recent events scroll inside a fixed-height box.
+
 ## 5.0.0-dev.2 - 2026-11-17
 
 - Long pages scroll again: the content of every scroll area was stretched to its visible height, so Settings and Activity could be cut off with no way to reach the rest.
