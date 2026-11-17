@@ -2,7 +2,7 @@
 
 DualLink 5 is a complete rewrite in native Rust with a new interface. It combines any number of internet connections, for everything on your PC or only the programs you choose.
 
-![DualLink 5 overview](screenshots/duallink-5.0-overview.png)
+![DualLink 5 overview](https://raw.githubusercontent.com/Vansh-Bhardwaj/DualLink/v5.0.0/docs/screenshots/duallink-5.0-overview.png)
 
 ## Highlights
 
