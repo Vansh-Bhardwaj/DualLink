@@ -53,7 +53,46 @@ pub trait PortWatcher: Send + Sync {
     fn closed(&self, port: u16);
 }
 
+/// Smart mode keeps a destination on the link it used before only while fewer than this many
+/// other connections to it are open. A download that opens several connections at once to one
+/// server is spread over the links instead; a sign-in, which opens them one after another,
+/// stays on one address.
+const SPREAD_FROM: u32 = 2;
+
+/// Connections open or opening to each destination.
+type OpenCounts = Arc<Mutex<HashMap<SocketAddrV4, u32>>>;
+
+/// One connection's place in [OpenCounts]; dropping it gives the place up.
+struct OpenGuard {
+    counts: OpenCounts,
+    destination: SocketAddrV4,
+}
+
+impl OpenGuard {
+    /// Counts one more connection to destination and says how many were already open.
+    fn new(counts: &OpenCounts, destination: SocketAddrV4) -> (OpenGuard, u32) {
+        let mut map = counts.lock().unwrap();
+        let entry = map.entry(destination).or_insert(0);
+        let before = *entry;
+        *entry += 1;
+        (OpenGuard { counts: counts.clone(), destination }, before)
+    }
+}
+
+impl Drop for OpenGuard {
+    fn drop(&mut self) {
+        let mut map = self.counts.lock().unwrap();
+        if let Some(count) = map.get_mut(&self.destination) {
+            *count -= 1;
+            if *count == 0 {
+                map.remove(&self.destination);
+            }
+        }
+    }
+}
+
 pub struct Router {
+    open: OpenCounts,
     options: RouterOptions,
     watcher: Option<Arc<dyn PortWatcher>>,
     state: Mutex<State>,
@@ -173,6 +212,7 @@ pub struct Lease {
     link: Arc<Link>,
     port: u16,
     watcher: Option<Arc<dyn PortWatcher>>,
+    _open: OpenGuard,
 }
 
 impl Lease {
@@ -205,6 +245,7 @@ impl Drop for Lease {
 impl Router {
     pub fn new(options: RouterOptions, watcher: Option<Arc<dyn PortWatcher>>) -> Self {
         Router {
+            open: Arc::new(Mutex::new(HashMap::new())),
             options,
             watcher,
             state: Mutex::new(State {
@@ -290,12 +331,14 @@ impl Router {
 
     /// Opens a connection to `destination` on the best link, trying the others if it fails.
     pub async fn connect(&self, destination: SocketAddrV4) -> io::Result<(TcpStream, Lease)> {
+        let (open, already) = OpenGuard::new(&self.open, destination);
+        let mut open = Some(open);
         let mut last = None;
         // Links can be replaced between choosing and reserving; choose once more if every
         // candidate had just been switched off.
         for _ in 0..2 {
             let mut reserved_any = false;
-            for link in self.candidates(destination) {
+            for link in self.candidates(destination, already) {
                 if !link.reserve() {
                     continue;
                 }
@@ -305,7 +348,8 @@ impl Router {
                     Ok((stream, port)) => {
                         link.succeeded(started.elapsed());
                         self.remember(destination, &link);
-                        return Ok((stream, Lease { link, port, watcher: self.watcher.clone() }));
+                        let _open = open.take().expect("taken only on success");
+                        return Ok((stream, Lease { link, port, watcher: self.watcher.clone(), _open }));
                     }
                     Err(error) => {
                         link.release();
@@ -348,7 +392,9 @@ impl Router {
         Err(result)
     }
 
-    fn candidates(&self, destination: SocketAddrV4) -> Vec<Arc<Link>> {
+    /// The links to try, best first. lready is how many connections to destination are
+    /// open or opening besides this one.
+    fn candidates(&self, destination: SocketAddrV4, already: u32) -> Vec<Arc<Link>> {
         let mut state = self.state.lock().unwrap();
         let now = Instant::now();
         let (mut pool, mut resting): (Vec<_>, Vec<_>) = state.active.iter().cloned().partition(|l| l.healthy(now));
@@ -373,15 +419,16 @@ impl Router {
                     pool.rotate_left(start);
                     pool.sort_by(|a, b| a.score().total_cmp(&b.score()));
                     match state.remembered.get(&destination) {
-                        Some((link, until)) if *until > now => {
+                        Some((link, until)) if *until > now && already < SPREAD_FROM => {
                             if let Some(at) = pool.iter().position(|l| Arc::ptr_eq(l, link)) {
                                 let link = pool.remove(at);
                                 pool.insert(0, link);
                             }
                         }
-                        Some(_) => {
+                        Some((_, until)) if *until <= now => {
                             state.remembered.remove(&destination);
                         }
+                        Some(_) => {}
                         None => {}
                     }
                 }
@@ -579,6 +626,26 @@ mod tests {
             held.push(lease);
         }
         assert_eq!(used.len(), 3, "three held connections land on three links: {used:?}");
+    }
+
+    #[tokio::test]
+    async fn smart_spreads_a_download_that_opens_many_connections_to_one_server() {
+        let server = echo_source().await;
+        let router = Router::new(options(), None);
+        router.set_routes(vec![route("a", [127, 0, 0, 1], 1), route("b", [127, 0, 0, 2], 1)], Mode::Smart);
+        let mut held = Vec::new();
+        for _ in 0..6 {
+            held.push(router.connect(server).await.unwrap());
+        }
+        let statuses = router.statuses();
+        assert!(statuses.iter().all(|s| s.active_connections >= 2), "both links carry the download: {statuses:?}");
+        drop(held);
+        // With the download finished, the next connection goes back to the remembered link.
+        let first = source_of(&router, server).await;
+        for _ in 0..3 {
+            assert_eq!(source_of(&router, server).await, first);
+        }
+        assert!(router.open.lock().unwrap().is_empty(), "every count was given back");
     }
 
     #[tokio::test]

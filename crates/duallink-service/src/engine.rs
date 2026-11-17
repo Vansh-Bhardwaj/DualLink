@@ -275,9 +275,11 @@ fn handle(
     if let Some(v4) = packet::parse_v4(frame) {
         if v4.is_tcp() {
             let verdict = shared.nat.lock().unwrap().outgoing(frame, &v4, now, |v4| {
-                let take = !is_local(*v4.destination.ip())
-                    && !shared.own_ports.lock().unwrap().contains(&v4.source.port())
-                    && covers(Table::Tcp4, v4.source.port());
+                // The service's own connections, made for connections it took over, aren't counted.
+                if shared.own_ports.lock().unwrap().contains(&v4.source.port()) {
+                    return false;
+                }
+                let take = !is_local(*v4.destination.ip()) && covers(Table::Tcp4, v4.source.port());
                 let counter = if take { &shared.routed } else { &shared.bypassed };
                 counter.fetch_add(1, Ordering::Relaxed);
                 take
