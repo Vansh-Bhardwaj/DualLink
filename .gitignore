@@ -8,3 +8,6 @@ dist/*
 !dist/.gitkeep
 installer/output/
 *.log
+
+# Rust
+/target/
