@@ -73,9 +73,24 @@ foreach ($entry in $replacements.GetEnumerator()) {
     $propsContent = $updated
 }
 
+$cargoPath = Join-Path $repoRoot 'Cargo.toml'
+$cargoContent = $null
+if (Test-Path -LiteralPath $cargoPath -PathType Leaf) {
+    # The native workspace carries the full version, prerelease part included.
+    $cargoContent = Get-Content -LiteralPath $cargoPath -Raw
+    $cargoPattern = '(?m)(?<=^\[workspace\.package\]\r?\nversion = ")[^"]+'
+    if (-not [regex]::IsMatch($cargoContent, $cargoPattern)) {
+        throw 'Cargo.toml is missing the [workspace.package] version line.'
+    }
+    $cargoContent = [regex]::Replace($cargoContent, $cargoPattern, $informational, 1)
+}
+
 if ($PSCmdlet.ShouldProcess("$versionPath and $propsPath", "set DualLink version to $informational")) {
     $Version | Set-Content -LiteralPath $versionPath -Encoding utf8
     ($propsContent.TrimEnd() + "`n") | Set-Content -LiteralPath $propsPath -Encoding utf8 -NoNewline
+    if ($null -ne $cargoContent) {
+        $cargoContent | Set-Content -LiteralPath $cargoPath -Encoding utf8 -NoNewline
+    }
 }
 
 Write-Host "DualLink version: $informational"

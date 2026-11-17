@@ -10,6 +10,19 @@ permissions:
   contents: read
 
 jobs:
+  native:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal --component clippy
+      - name: Lint
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Test
+        run: cargo test --workspace --locked
+      - name: Build release
+        run: cargo build --workspace --release --locked
+
   build-and-test:
     runs-on: windows-latest
     steps:

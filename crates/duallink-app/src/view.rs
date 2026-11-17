@@ -120,10 +120,9 @@ fn notice(s: &Ui, t: &Theme) -> Option<El> {
         ("The DualLink service isn't running. Restart the PC or run setup again.".to_string(), t.bad)
     } else if let Some(refused) = &s.refused {
         (format!("Not saved. {refused}"), t.warn)
-    } else if let Some(problem) = problem {
-        (problem, if s.state() == EngineState::Failed { t.bad } else { t.warn })
     } else {
-        return None;
+        let problem = problem?;
+        (problem, if s.state() == EngineState::Failed { t.bad } else { t.warn })
     };
     Some(
         row().key("notice").px(20.0).pb(12.0).child(
@@ -602,8 +601,11 @@ fn sharing_panel(s: &Ui, t: &Theme) -> El {
         ))
 }
 
+/// A named state the window can be put in.
+pub type Scene = (&'static str, fn(&mut Ui));
+
 /// States the window can be shown in without a service, for checking how it looks.
-pub const SCENES: &[(&str, fn(&mut Ui))] = &[
+pub const SCENES: &[Scene] = &[
     ("on", |s| demo(s, EngineState::On, 3)),
     ("four", |s| demo(s, EngineState::On, 4)),
     ("off", |s| demo(s, EngineState::Off, 2)),

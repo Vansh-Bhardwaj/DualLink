@@ -37,7 +37,7 @@ pub struct Theme {
     pub ink: Color,
     pub ink_soft: Color,
     pub ink_faint: Color,
-    /// DualLink's own colour: the combined stream and anything switched on.
+    /// DualLink's own colour, for anything switched on.
     pub accent: Color,
     pub warn: Color,
     pub bad: Color,
@@ -45,9 +45,9 @@ pub struct Theme {
 
 pub fn theme(dark: bool, scale: f32) -> Theme {
     let (ground, ink, accent) = if dark {
-        (hex("#0a0c0f"), hex("#f2f5f7"), hex("#3ee0b0"))
+        (hex("#111215"), hex("#ebebef"), hex("#7d8fff"))
     } else {
-        (hex("#f3f4f6"), hex("#0f1317"), hex("#00a47c"))
+        (hex("#f4f4f7"), hex("#17181c"), hex("#5466e0"))
     };
     let mut k = Kit::from_palette(PaletteSeed { bg: ground, fg: ink, accent });
     k.c.knob_on = hex("#ffffff");
@@ -71,8 +71,8 @@ pub fn theme(dark: bool, scale: f32) -> Theme {
         },
         hair: 1.0 / scale,
         ground,
-        panel: if dark { hex("#111418") } else { hex("#ffffff") },
-        raised: if dark { hex("#191d23") } else { hex("#eef0f3") },
+        panel: if dark { hex("#17181c") } else { hex("#ffffff") },
+        raised: if dark { hex("#25262c") } else { hex("#ececf1") },
         line: ink.alpha(if dark { 0.09 } else { 0.1 }),
         ink,
         ink_soft: ink.alpha(0.62),
@@ -88,7 +88,8 @@ impl Theme {
     /// One colour per connection, by its place in the list, spaced round the colour wheel
     /// at equal lightness so no connection looks more important than another.
     pub fn link(&self, index: usize) -> Color {
-        const HUES: [f32; 8] = [168.0, 250.0, 75.0, 320.0, 30.0, 205.0, 120.0, 355.0];
+        // Amber and cyan come first: they have always stood for the first two connections.
+        const HUES: [f32; 8] = [80.0, 220.0, 305.0, 160.0, 30.0, 270.0, 125.0, 355.0];
         rune::oklch(if self.dark { 0.8 } else { 0.62 }, 0.15, HUES[index % HUES.len()])
     }
 }

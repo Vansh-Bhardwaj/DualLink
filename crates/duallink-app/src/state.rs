@@ -11,6 +11,9 @@ use std::time::Duration;
 pub const HISTORY: usize = 60;
 pub const CAPS_MBPS: [u32; 9] = [0, 5, 10, 25, 50, 100, 250, 500, 1000];
 
+/// Bytes down and up per link id, as last reported.
+type Counters = HashMap<String, (u64, u64)>;
+
 /// What the service said, tagged with the last change of ours it had seen.
 pub struct Report {
     pub seen: u64,
@@ -39,7 +42,7 @@ pub struct Ui {
     pub peak: f32,
     pub expanded: Option<String>,
     pub program: TextEdit,
-    previous: Option<(u64, HashMap<String, (u64, u64)>)>,
+    previous: Option<(u64, Counters)>,
     sent: u64,
     changes: Option<Sender<(u64, Config)>>,
     reports: Option<Receiver<Report>>,

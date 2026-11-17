@@ -4,7 +4,13 @@ All notable DualLink changes are recorded here. Versions follow semantic version
 
 ## 5.0.0-dev.1 - 2026-11-17
 
-- Begins the DualLink 5 rewrite: a fully native app with any number of connections, system-wide combining, and a new interface.
+- Begins the DualLink 5 rewrite as a fully native app. The DualLink 4 app stays in the tree until the new one has passed live testing.
+- Combines any number of connections: Ethernet, Wi-Fi, phones on USB, and mobile data, each tied to its adapter so two phones handing out the same address range don't collide.
+- Combines for everything on the PC, with a list of programs to leave alone, or only for chosen programs.
+- Replaces the separate filter service with one background service that watches packets and carries connections itself. If it stops, the adapters return to normal with nothing left pointing at it. No administrator prompt on each start.
+- Keeps browsers on traffic that can be combined by turning away QUIC and IPv6 for combined programs; both can be switched off.
+- New window: each connection is a stream of its own colour, and the streams run together into one that ends at the combined speed. One palette and type scale, in light and dark.
+- Not yet done in this build: the installer and build scripts still package DualLink 4, and the tray icon, start with Windows, and updates are not in the new app. The packet engine has unit tests but has not yet been run against live traffic.
 
 ## 4.2.0-dev.1 - 2026-10-12
 
