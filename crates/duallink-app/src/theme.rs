@@ -1,92 +1,106 @@
-//! DualLink's look: one palette and one type scale, used by every part of the window.
+//! DualLink's look: native surfaces and type from the framework's own tokens, DualLink's
+//! indigo for anything switched on, and one colour per connection.
 
 use rune::Color;
-use rune::tok::TextStyle;
-use rune_kit::{Kit, PaletteSeed};
+use rune::tok::{self, TextStyle, type_};
 
 fn hex(value: &str) -> Color {
     rune::color::hex(value).expect("colours in this file are valid")
 }
 
-/// The five sizes text comes in. Numbers use fixed-width digits so they don't jitter as they change.
+/// The type scale. Sentence case throughout; numbers use fixed-width digits so they hold
+/// still as they change.
 pub struct Type {
     /// The combined speed.
     pub display: TextStyle,
-    /// A connection's speed.
+    /// A connection's speed in the sidebar.
     pub figure: TextStyle,
-    /// Names and the wordmark.
+    /// The wordmark and page titles.
     pub title: TextStyle,
-    /// Controls and supporting values.
+    /// Row labels and values.
     pub body: TextStyle,
-    /// Section labels and units, set in capitals.
-    pub label: TextStyle,
-    /// The same size in ordinary case, for short names under icons.
-    pub label_case: TextStyle,
+    /// Names that need a little weight.
+    pub body_medium: TextStyle,
+    /// Section headings above cards.
+    pub section: TextStyle,
+    /// Supporting details.
+    pub small: TextStyle,
 }
 
 pub struct Theme {
     pub dark: bool,
-    pub k: Kit,
     pub ty: Type,
     pub hair: f32,
-    /// The window behind everything.
+    /// Behind everything; the sidebar sits straight on it.
     pub ground: Color,
-    /// Panels.
+    /// The main panel.
     pub panel: Color,
-    /// Things that sit on panels.
-    pub raised: Color,
-    pub line: Color,
+    /// Grouped rows.
+    pub card: Color,
+    pub card_border: Color,
+    pub separator: Color,
+    pub hover: Color,
+    pub press: Color,
+    pub selected: Color,
     pub ink: Color,
     pub ink_soft: Color,
     pub ink_faint: Color,
-    /// DualLink's own colour, for anything switched on.
     pub accent: Color,
     pub warn: Color,
     pub bad: Color,
+    /// Switch and segmented-control parts.
+    pub track: Color,
+    pub control_off: Color,
+    pub indicator: Color,
+    pub knob: Color,
+    pub knob_shadow: Color,
+    pub edge: Color,
+    pub shadow: Color,
+    pub shadow_soft: Color,
     /// Windows asks for less motion: nothing moves for decoration.
     pub still: bool,
 }
 
 pub fn theme(dark: bool, scale: f32) -> Theme {
-    let (ground, ink, accent) = if dark {
-        (hex("#111215"), hex("#ebebef"), hex("#7d8fff"))
-    } else {
-        (hex("#f4f4f7"), hex("#17181c"), hex("#5466e0"))
-    };
-    let mut k = Kit::from_palette(PaletteSeed { bg: ground, fg: ink, accent });
-    k.c.knob_on = hex("#ffffff");
-    let base = k.ty.ui;
-    let style = |size: f32, weight: f32, tracking: f32, numeric: bool| TextStyle {
-        size,
-        weight,
-        tracking,
-        line_height: (size * 1.15).round(),
-        features: if numeric { "tnum" } else { base.features },
-        ..base
-    };
+    let n = tok::theme(dark);
+    let accent = if dark { hex("#7d8fff") } else { hex("#4f63e6") };
+    let (ground, panel) = if dark { (hex("#0b0b0d"), hex("#151618")) } else { (hex("#e9eaee"), hex("#f6f6f8")) };
+    let digits = |style: TextStyle| TextStyle { features: "tnum", ..style };
     Theme {
         dark,
         ty: Type {
-            display: style(96.0, 600.0, -3.0, true),
-            figure: style(20.0, 600.0, -0.3, true),
-            title: style(15.0, 550.0, -0.1, false),
-            body: style(13.0, 450.0, 0.0, true),
-            label: style(11.0, 600.0, 0.9, false),
-            label_case: style(11.5, 500.0, 0.0, false),
+            display: digits(TextStyle { size: 76.0, weight: 600.0, tracking: -2.4, line_height: 80.0, ..type_::BODY }),
+            figure: digits(TextStyle { size: 13.0, weight: 600.0, ..type_::BODY }),
+            title: TextStyle { size: 14.0, ..type_::TITLE },
+            body: digits(type_::BODY),
+            body_medium: TextStyle { weight: 500.0, ..type_::BODY },
+            section: type_::SECTION,
+            small: digits(TextStyle { size: 11.5, weight: 450.0, line_height: 14.0, ..type_::BODY }),
         },
         hair: 1.0 / scale,
         ground,
-        panel: if dark { hex("#17181c") } else { hex("#ffffff") },
-        raised: if dark { hex("#25262c") } else { hex("#ececf1") },
-        line: ink.alpha(if dark { 0.09 } else { 0.1 }),
-        ink,
-        ink_soft: ink.alpha(0.62),
-        ink_faint: ink.alpha(0.36),
+        panel,
+        card: if dark { hex("#1d1e21") } else { hex("#ffffff") },
+        card_border: n.card_border,
+        separator: n.separator,
+        hover: n.hover,
+        press: n.press,
+        selected: if dark { hex("#26272b") } else { hex("#dcdde3") },
+        ink: n.text,
+        ink_soft: n.text_secondary,
+        ink_faint: n.text_secondary.alpha(0.6),
         accent,
         warn: if dark { hex("#f5b94e") } else { hex("#b06f00") },
         bad: if dark { hex("#ff6f81") } else { hex("#cc2c44") },
+        track: n.control_track,
+        control_off: n.control_off,
+        indicator: n.indicator,
+        knob: n.knob,
+        knob_shadow: n.knob_shadow,
+        edge: n.edge,
+        shadow: n.shadow,
+        shadow_soft: n.shadow_soft,
         still: false,
-        k,
     }
 }
 

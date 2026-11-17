@@ -5,6 +5,7 @@
 mod apps;
 mod client;
 mod flow;
+mod fx;
 mod state;
 mod theme;
 mod view;
@@ -16,13 +17,20 @@ fn main() {
         return;
     }
     let spec = rune::AppSpec::<Ui> {
-        min_size: Some((900.0, 600.0)),
+        min_size: Some((960.0, 620.0)),
         scenes: view::SCENES,
-        setup: Some(|ui, wake| ui.connect(wake)),
+        // Headless renders show the named scenes, not this PC's service.
+        setup: Some(|ui, wake| {
+            if rune::tooling::headless_run().is_none() {
+                ui.connect(wake);
+            }
+        }),
         poll: Some(|ui, _clock, _tx| ui.absorb()),
-        ..rune::AppSpec::new("DualLink", (1000.0, 640.0), Ui::default, view::view)
+        ..rune::AppSpec::new("DualLink", (1120.0, 760.0), Ui::default, view::view)
     };
-    rune::App::new(spec).on_window(set_window_icon).run();
+    let ui = Ui::default();
+    let metal = fx::Metal::new(ui.metal_moving.clone());
+    rune::App::new(spec).init(move || ui).compositor(metal).on_window(set_window_icon).run();
 }
 
 /// `DualLink.exe --status | --on | --off` talks to the service from a terminal, for support.
