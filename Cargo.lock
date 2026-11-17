@@ -833,12 +833,10 @@ version = "5.0.0-dev.2"
 dependencies = [
  "duallink-core",
  "rune",
- "rune-fx",
  "rune-kit",
  "serde",
  "serde_json",
  "tray-icon",
- "wgpu",
  "windows",
  "winresource",
 ]
@@ -3216,17 +3214,6 @@ dependencies = [
  "xkbcommon",
  "zbus 6.3.0",
  "zeroize",
-]
-
-[[package]]
-name = "rune-fx"
-version = "0.0.1"
-source = "git+https://github.com/anomalyco/rune?rev=3468f3a3b6c690336a94a8a57e66a149c2a422dc#3468f3a3b6c690336a94a8a57e66a149c2a422dc"
-dependencies = [
- "bytemuck",
- "rune-motion",
- "rune-staging",
- "wgpu",
 ]
 
 [[package]]

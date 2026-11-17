@@ -68,8 +68,6 @@ pub struct Ui {
     pub open_now: Vec<String>,
     /// The travelling pulses in the picture.
     pub flow: crate::flow::Flow,
-    /// Whether the chrome on the on/off control is showing and moving; read by the compositor.
-    pub metal_moving: std::sync::Arc<std::sync::atomic::AtomicBool>,
     previous: Option<(u64, Counters)>,
     sent: u64,
     changes: Option<Sender<(u64, Config)>>,
@@ -106,7 +104,6 @@ impl Default for Ui {
             apps: HashMap::new(),
             open_now: Vec::new(),
             flow: crate::flow::Flow::default(),
-            metal_moving: Default::default(),
             previous: None,
             sent: 0,
             changes: None,

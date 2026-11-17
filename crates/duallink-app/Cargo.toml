@@ -15,9 +15,6 @@ serde_json.workspace = true
 tray-icon = "0.26"
 rune = { git = "https://github.com/anomalyco/rune", rev = "3468f3a3b6c690336a94a8a57e66a149c2a422dc", features = ["native-file-dialog"] }
 rune-kit = { git = "https://github.com/anomalyco/rune", rev = "3468f3a3b6c690336a94a8a57e66a149c2a422dc" }
-rune-fx = { git = "https://github.com/anomalyco/rune", rev = "3468f3a3b6c690336a94a8a57e66a149c2a422dc" }
-# The same graphics library the framework draws with; named only for the compositor's types.
-wgpu = { version = "30", default-features = false, features = ["std", "parking_lot", "wgsl", "vulkan", "dx12"] }
 windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",

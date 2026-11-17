@@ -5,7 +5,6 @@
 mod apps;
 mod client;
 mod flow;
-mod fx;
 mod prefs;
 mod state;
 mod theme;
@@ -35,11 +34,9 @@ fn main() {
     let mut ui = Ui::default();
     ui.prefs = prefs::Prefs::load();
     ui.autostart = prefs::autostart::enabled();
-    let metal = fx::Metal::new(ui.metal_moving.clone());
     let mut app = rune::App::new(spec)
         .init(move || ui)
         .titlebar(rune::Titlebar::new(40.0))
-        .compositor(metal)
         .keep_running()
         // Closing hides the window while DualLink stays in the notification area, unless the
         // user turned that off.

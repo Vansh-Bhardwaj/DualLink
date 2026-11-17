@@ -5,7 +5,6 @@
 //! shows each connection as a thin line in its own colour running into one line that ends at
 //! the combined speed, with pulses travelling along each line while it carries traffic.
 
-use crate::fx::metal;
 use crate::prefs::{Appearance, autostart};
 use crate::state::{HISTORY, Page, Speed, Ui, step_cap};
 use crate::theme::{Theme, theme};
@@ -13,7 +12,6 @@ use duallink_core::{Config, EngineState, LinkInfo, LinkKind, LinkStatus, Mode, S
 use rune::tok::{TextStyle, motion, type_};
 use rune::{Align, Color, Cx, El, FileDialogOptions, LineCap, Path, ScrollSpec, Shape, Tx, canvas, col, el, row, text};
 use rune_kit::{ScrollBar, ScrollBarStyle};
-use std::sync::atomic::Ordering;
 
 const MODES: [(Mode, &str); 3] = [(Mode::Smart, "Smart"), (Mode::Balanced, "Even"), (Mode::Backup, "Backup")];
 const TITLEBAR: f32 = 40.0;
@@ -64,7 +62,6 @@ pub fn view(s: &Ui, cx: &mut Cx<Ui>) -> El {
     cx.caption_color(t.ink_soft);
     let trailing = cx.chrome_insets().trailing;
     s.flow.start();
-    s.metal_moving.store(s.config.enabled && s.offline.is_none() && !t.still, Ordering::Relaxed);
 
     let compact = s.width < COMPACT_BELOW;
     let panel_width = s.width - if compact { SIDEBAR_COMPACT } else { SIDEBAR } - 8.0;
@@ -438,13 +435,15 @@ fn link_row(s: &Ui, t: &Theme, link: &LinkStatus, index: usize) -> El {
         .child(text(mbps(speed.down)).key("speed").font(t.ty.figure).color(ink).a11y_hidden())
 }
 
-/// The one control that matters: combining on or off. While on, it wears a band of
-/// polished, slowly moving chrome.
+/// The one control that matters: combining on or off. On, it fills with DualLink's indigo and
+/// glows softly; off, it sits quietly like any other control.
 fn master(s: &Ui, t: &Theme, compact: bool) -> El {
     let on = s.config.enabled;
     let available = s.offline.is_none();
+    let lit = on && available;
     let (word, dot) = summary(s, t);
-    let size = if compact { 44.0 } else { 48.0 };
+    let size = if compact { 44.0 } else { 46.0 };
+    let ink = if lit { Color::WHITE } else { t.ink };
     let mut pill = row()
         .key("master")
         .h(size)
@@ -452,48 +451,53 @@ fn master(s: &Ui, t: &Theme, compact: bool) -> El {
         .gap(10.0)
         .center_y()
         .mt(8.0)
-        .fill(t.card)
         .role("switch")
         .label("Combine connections")
         .checked(on)
         .help(if available { "Combine connections" } else { "The DualLink service isn't running" })
         .focusable(available)
-        .hover(t.hover)
-        .press(t.press);
-    pill = if compact { pill.w(size).justify_center() } else { pill.w_full().pl(16.0).pr(8.0) };
+        .motion(motion::SNAPPY);
+    pill = if lit {
+        let deep = t.accent.mix(Color::BLACK, 0.18);
+        pill.fill(t.accent)
+            .linear_gradient(std::f32::consts::FRAC_PI_2, [(0.0, deep), (1.0, t.accent)])
+            .border(t.hair, Color::WHITE.alpha(0.18))
+            .shadow(6.0, 22.0, t.accent.alpha(0.32))
+            .hover(Color::WHITE.alpha(0.06))
+            .press(Color::BLACK.alpha(0.08))
+    } else {
+        pill.fill(t.card).border(t.hair, t.card_border).shadow(1.0, 2.0, t.shadow).hover(t.hover).press(t.press)
+    };
+    pill = if compact { pill.w(size).justify_center() } else { pill.w_full().pl(16.0).pr(6.0) };
     if available {
         pill = pill.on_press(|s: &mut Ui| {
             s.config.enabled = !s.config.enabled;
             s.send();
         });
     }
-    if on && available {
-        pill = pill.child(metal(3.5).absolute(0.0, 0.0).w_full().h_full().radius(size / 2.0).a11y_hidden());
-    } else {
-        pill = pill.border(t.hair, t.card_border);
-    }
-    pill = pill.child(el().key("dot").size(8.0, 8.0).radius(4.0).fill(dot).shadow(0.0, 8.0, dot.alpha(0.6)).a11y_hidden());
+    let light = if lit { Color::WHITE } else { dot };
+    pill = pill.child(el().key("dot").size(8.0, 8.0).radius(4.0).fill(light).shadow(0.0, 8.0, light.alpha(0.7)).a11y_hidden());
     if compact {
         return pill;
     }
-    pill.child(text(word).key("word").font(t.ty.body_medium).color(t.ink).grow(1.0).a11y_hidden()).child(
+    pill.child(text(word).key("word").font(t.ty.body_medium).color(ink).grow(1.0).a11y_hidden()).child(
         el().key("knob-track")
-            .size(38.0, 22.0)
-            .radius(11.0)
-            .fill(if on { t.accent } else { t.control_off })
+            .size(44.0, 26.0)
+            .radius(13.0)
+            .fill(if lit { Color::WHITE.alpha(0.22) } else { t.control_off })
             .motion(motion::SNAPPY)
             .a11y_hidden()
             .child(
                 el().key("knob")
-                    .size(18.0, 18.0)
-                    .absolute(if on { 18.0 } else { 2.0 }, 2.0)
-                    .radius(9.0)
-                    .fill(t.knob)
-                    .shadow(1.0, 3.0, t.knob_shadow),
+                    .size(22.0, 22.0)
+                    .absolute(if on { 20.0 } else { 2.0 }, 2.0)
+                    .radius(11.0)
+                    .fill(Color::WHITE)
+                    .shadow(1.0, 3.0, t.knob_shadow)
+                    .shadow(0.0, 0.5, t.edge),
             ),
     )
 }
-
 /// The engine's state in a word or two, and a colour.
 fn summary(s: &Ui, t: &Theme) -> (&'static str, Color) {
     if s.offline.is_some() {
@@ -598,10 +602,14 @@ fn notice(s: &Ui, t: &Theme, fit: Fit) -> Option<El> {
 
 fn overview(s: &Ui, t: &Theme, fit: Fit) -> El {
     let links = s.ordered();
-    let mut page = col().key("overview").gap(24.0).child(picture(s, t, &links, fit.narrow)).child(totals(s, t));
+    let mut page = col().key("overview").gap(20.0).child(picture(s, t, &links, fit.narrow));
+    if !links.is_empty() {
+        page = page.child(link_cards(s, t, &links));
+    }
+    page = page.child(totals(s, t));
     if let Some(card) = link_settings(s, t) {
         page = page.child(card);
-    } else if fit.compact {
+    } else if fit.compact && links.is_empty() {
         // The sidebar has no room for the connections, so they're listed here.
         let mut rows: Vec<El> = links.iter().enumerate().map(|(index, link)| link_row(s, t, link, index)).collect();
         if rows.is_empty() {
@@ -610,6 +618,85 @@ fn overview(s: &Ui, t: &Theme, fit: Fit) -> El {
         page = page.child(section(t, "connections", "Connections", rows));
     }
     page
+}
+
+/// Each connection as a card: its speed, its share of the traffic, and how quickly it answers.
+/// Pressing one opens its settings.
+fn link_cards(s: &Ui, t: &Theme, links: &[&LinkStatus]) -> El {
+    let on = s.state() == EngineState::On;
+    let speeds: Vec<f32> = links.iter().map(|l| s.speeds.get(&l.info.id).map_or(0.0, |v| v.down)).collect();
+    let total: f32 = speeds.iter().sum();
+    let mut cards = row().key("cards").w_full().gap(12.0).flex_wrap();
+    for (index, link) in links.iter().enumerate() {
+        let id = link.info.id.clone();
+        let enabled = s.config.choice(&id).enabled;
+        let color = link_color(s, t, link, index);
+        let share = if on && total > 0.05 { speeds[index] / total } else { 0.0 };
+        let state = if !enabled {
+            "Not used"
+        } else if !link.healthy {
+            "Not responding"
+        } else if on {
+            "In use"
+        } else {
+            "Ready"
+        };
+        let mut facts = Vec::new();
+        if on && total > 0.05 {
+            facts.push(format!("{:.0}% of traffic", share * 100.0));
+        }
+        if let Some(ms) = link.latency_ms {
+            facts.push(format!("{ms:.0} ms"));
+        }
+        facts.push(link.info.kind.label().to_string());
+        let open = s.expanded.as_deref() == Some(id.as_str());
+        cards = cards.child(
+            col()
+                .key(format!("card-{id}"))
+                .grow(1.0)
+                .min_w(200.0)
+                .padding(14.0)
+                .gap(10.0)
+                .radius(12.0)
+                .fill(t.card)
+                .border(t.hair, if open { color.alpha(0.6) } else { t.card_border })
+                .hover(t.hover)
+                .press(t.press)
+                .focusable(true)
+                .role("button")
+                .label(format!("{}, {} megabits per second. Settings", link_title(&link.info), mbps(speeds[index])))
+                .on_press(move |s: &mut Ui| {
+                    s.expanded = if s.expanded.as_deref() == Some(id.as_str()) { None } else { Some(id.clone()) };
+                })
+                .child(
+                    row()
+                        .key("top")
+                        .gap(8.0)
+                        .center_y()
+                        .child(el().key("dot").size(8.0, 8.0).radius(4.0).fill(color).shadow(0.0, 6.0, color.alpha(0.5)).a11y_hidden())
+                        .child(text(link_title(&link.info)).key("name").font(t.ty.body_medium).color(t.ink).grow(1.0).min_w(0.0).truncate())
+                        .child(text(state).key("state").font(t.ty.small).color(if on && enabled && link.healthy { color } else { t.ink_faint })),
+                )
+                .child(
+                    row()
+                        .key("speed")
+                        .gap(6.0)
+                        .items_end()
+                        .child(text(mbps(speeds[index])).key("value").font(TextStyle { size: 26.0, line_height: 28.0, ..t.ty.figure }).color(t.ink))
+                        .child(text("Mbps").key("unit").font(t.ty.small).color(t.ink_soft).pb(3.0)),
+                )
+                .child(
+                    el().key("bar")
+                        .w_full()
+                        .h(4.0)
+                        .radius(2.0)
+                        .fill(t.track)
+                        .child(el().key("share").w_frac(share.max(0.0)).h(4.0).radius(2.0).fill(color).motion(motion::SNAPPY)),
+                )
+                .child(text(facts.join("  ·  ")).key("facts").font(t.ty.small).color(t.ink_faint).truncate()),
+        );
+    }
+    cards
 }
 
 /// A few numbers for this session, each in its own tile.
@@ -676,7 +763,7 @@ fn picture(s: &Ui, t: &Theme, links: &[&LinkStatus], narrow: bool) -> El {
     } else {
         row().key("flow").w_full().h(PICTURE).center_y().gap(16.0).child(streams(s, t, links)).child(readout.w(200.0).items_end())
     };
-    col().key("picture").w_full().gap(6.0).child(flow).child(canvas(minute(s, t)).key("minute").w_full().h(32.0).a11y_hidden())
+    col().key("picture").w_full().gap(6.0).child(flow).child(canvas(minute(s, t)).key("minute").w_full().h(40.0).a11y_hidden())
 }
 
 /// A connection's line: from its place on the left, curving into the meeting point. With
@@ -1213,7 +1300,19 @@ fn activity_page(s: &Ui, t: &Theme) -> El {
         .gap(24.0)
         .child(now)
         .child(section(t, "details", "Connections", rows))
-        .child(section(t, "log", "Recent events, newest first", vec![log]))
+        .child(section(
+            t,
+            "log",
+            "Recent events, newest first",
+            vec![col()
+                .key("log-scroll")
+                .w_full()
+                .max_h(220.0)
+                .scroll(ScrollSpec { stick_bottom: false })
+                .scroll_edge_fade(10.0)
+                .child(log)
+                .scroll_bar_styled(ScrollBarStyle::neutral(t.dark))],
+        ))
 }
 
 /// A named state the window can be put in.
