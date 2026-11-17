@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/duallink-core", "crates/duallink-service", "crates/duallink-app"]
 
 [workspace.package]
-version = "5.0.0-dev.1"
+version = "5.0.0-dev.2"
 edition = "2024"
 
 publish = false

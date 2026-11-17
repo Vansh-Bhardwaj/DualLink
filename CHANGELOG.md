@@ -2,6 +2,11 @@
 
 All notable DualLink changes are recorded here. Versions follow semantic versioning.
 
+## 5.0.0-dev.2 - 2026-11-17
+
+- Long pages scroll again: the content of every scroll area was stretched to its visible height, so Settings and Activity could be cut off with no way to reach the rest.
+- Activity and the overview no longer show the previous session's counts and totals once combining is off.
+
 ## 5.0.0-dev.1 - 2026-11-17
 
 - Begins the DualLink 5 rewrite as a fully native app. The DualLink 4 app stays in the tree until the new one has passed live testing.
