@@ -46,6 +46,8 @@ pub struct Ui {
     pub apps: HashMap<String, AppInfo>,
     /// Programs with a window on screen, as lower-cased full paths, in the order found.
     pub open_now: Vec<String>,
+    /// The travelling pulses in the picture.
+    pub flow: crate::flow::Flow,
     previous: Option<(u64, Counters)>,
     sent: u64,
     changes: Option<Sender<(u64, Config)>>,
@@ -73,6 +75,7 @@ impl Default for Ui {
             expanded: None,
             apps: HashMap::new(),
             open_now: Vec::new(),
+            flow: crate::flow::Flow::default(),
             previous: None,
             sent: 0,
             changes: None,

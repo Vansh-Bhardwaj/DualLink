@@ -9,8 +9,9 @@ All notable DualLink changes are recorded here. Versions follow semantic version
 - Combines for everything on the PC, with a list of programs to leave alone, or only for chosen programs.
 - Replaces the separate filter service with one background service that watches packets and carries connections itself. If it stops, the adapters return to normal with nothing left pointing at it. No administrator prompt on each start.
 - Keeps browsers on traffic that can be combined by turning away QUIC and IPv6 for combined programs; both can be switched off.
-- New window: each connection is a stream of its own colour, and the streams run together into one that ends at the combined speed. One palette and type scale, in light and dark.
-- Not yet done in this build: the installer and build scripts still package DualLink 4, and the tray icon, start with Windows, and updates are not in the new app. The packet engine has unit tests but has not yet been run against live traffic.
+- New window: each connection is a thin line of its own colour running into one line that ends at the combined speed, with pulses of light travelling along each line, faster the more it carries. Pulses stay still when Windows asks for less motion. One palette and type scale, in light and dark, carried over from DualLink 4.
+- Programs show as the icon and name Windows gives them. Programs open on screen are offered with one click.
+- Not yet done in this build: the installer and build scripts still package DualLink 4, and the tray icon, start with Windows, and updates are not in the new app yet. The packet engine has unit tests but has not yet been run against live traffic.
 
 ## 4.2.0-dev.1 - 2026-10-12
 

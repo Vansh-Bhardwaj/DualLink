@@ -43,6 +43,8 @@ pub struct Theme {
     pub accent: Color,
     pub warn: Color,
     pub bad: Color,
+    /// Windows asks for less motion: nothing moves for decoration.
+    pub still: bool,
 }
 
 pub fn theme(dark: bool, scale: f32) -> Theme {
@@ -83,6 +85,7 @@ pub fn theme(dark: bool, scale: f32) -> Theme {
         accent,
         warn: if dark { hex("#f5b94e") } else { hex("#b06f00") },
         bad: if dark { hex("#ff6f81") } else { hex("#cc2c44") },
+        still: false,
         k,
     }
 }

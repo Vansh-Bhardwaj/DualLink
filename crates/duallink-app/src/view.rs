@@ -36,7 +36,9 @@ fn bytes(value: u64) -> String {
 }
 
 pub fn view(s: &Ui, cx: &mut Cx<Ui>) -> El {
-    let t = theme(cx.system_dark(), cx.env().scale);
+    let mut t = theme(cx.system_dark(), cx.env().scale);
+    t.still = cx.system_reduced_motion();
+    s.flow.start();
     let body = col()
         .key("window")
         .w_full()
@@ -202,10 +204,10 @@ fn stage(s: &Ui, t: &Theme) -> El {
                 .pb(6.0)
                 .pl(10.0)
                 .child(nodes)
-                .child(canvas(streams(s, t, &links, height)).key("streams").grow(1.0).min_w(60.0).h(height).a11y_hidden())
+                .child(streams(s, t, &links, height))
                 .child(readout),
         )
-        .child(canvas(minute(s, t)).key("minute").w_full().h(54.0).a11y_hidden())
+        .child(canvas(minute(s, t)).key("minute").w_full().h(44.0).a11y_hidden())
 }
 
 /// One connection at the head of its stream.
@@ -293,59 +295,84 @@ fn link_title(info: &LinkInfo) -> String {
     }
 }
 
-/// The streams. Each leaves its connection as a band as thick as its share of the traffic,
-/// and the bands stack into one stream on the right.
-fn streams(s: &Ui, t: &Theme, links: &[&LinkStatus], height: f32) -> Shape {
-    const W: f32 = 400.0;
-    let mut shape = Shape::new();
-    if links.is_empty() {
-        return shape.view_box(W, height);
-    }
+/// Width of the picture's drawing space; it stretches to fit.
+const W: f32 = 400.0;
+/// Where the lines meet, as a share of the width.
+const JOIN: f32 = 0.66;
+
+/// A connection's line: from its row on the left, curving into the meeting point. With
+/// `onward` it carries on to the right edge, which is the way its pulses travel.
+fn line(index: usize, count: usize, height: f32, onward: bool) -> Path {
+    let lane = height / count as f32;
+    let (from, mid) = (lane * (index as f32 + 0.5), height / 2.0);
+    let join = W * JOIN;
+    let path = Path::new().move_to([0.0, from]).cubic_to([join * 0.55, from], [join * 0.45, mid], [join, mid]);
+    if onward { path.line_to([W, mid]) } else { path }
+}
+
+/// The lines. Each connection is a thin line in its own colour running into one line that
+/// ends at the combined speed, with pulses of light travelling along it while it carries
+/// traffic: the busier the connection, the faster they go.
+fn streams(s: &Ui, t: &Theme, links: &[&LinkStatus], height: f32) -> El {
     let flowing = s.state() == EngineState::On;
     let speeds: Vec<f32> = links
         .iter()
         .map(|l| if s.config.choice(&l.info.id).enabled { s.speeds.get(&l.info.id).map_or(0.0, |v| v.down) } else { 0.0 })
         .collect();
     let total: f32 = speeds.iter().sum();
-    let moving = total > 0.05;
-    // The combined stream is at its thickest when the speed matches the fastest seen so far.
-    let fullest = height * 0.46;
-    let combined = if moving { (fullest * (total / s.peak.max(total)).sqrt()).max(14.0) } else { 0.0 };
-    let widths: Vec<f32> = speeds.iter().map(|v| if moving { (combined * v / total).max(1.5) } else { 1.5 }).collect();
-    // At rest the streams are thin threads lying side by side; moving, they touch.
-    let gap = if moving { 0.0 } else { 5.0 };
-    let stacked: f32 = widths.iter().sum::<f32>() + (links.len() as f32 - 1.0) * gap;
-    let mut top = height / 2.0 - stacked / 2.0;
-    let lane = height / links.len() as f32;
+    let moving = flowing && total > 0.05;
+    s.flow.set_speeds(&speeds, speeds.iter().copied().fold(0.0, f32::max), moving && !t.still);
 
+    let mut base = Shape::new();
+    let count = links.len().max(1);
     for (index, link) in links.iter().enumerate() {
-        let width = widths[index];
-        let from = lane * (index as f32 + 0.5);
-        let (a, b) = (from - width / 2.0, from + width / 2.0);
-        let (c, d) = (top, top + width);
-        top += width + gap;
         let enabled = s.config.choice(&link.info.id).enabled;
+        let share = if total > 0.05 { speeds[index] / total } else { 0.0 };
+        // Mixed into the panel rather than see-through: a see-through stroke shows its joints.
         let color = if !enabled {
-            t.ink.alpha(0.08)
-        } else if !flowing || speeds[index] <= 0.05 {
-            t.link(index).alpha(if flowing { 0.5 } else { 0.28 })
+            t.ink.mix(t.panel, 0.9)
         } else {
-            t.link(index).alpha(0.92)
+            t.link(index).mix(t.panel, if flowing { 0.65 - 0.45 * share } else { 0.75 })
         };
-        let (bend, join) = (W * 0.42, W * 0.8);
-        let band = Path::new()
-            .move_to([0.0, a])
-            .cubic_to([bend, a], [bend, c], [join, c])
-            .line_to([W, c])
-            .line_to([W, d])
-            .line_to([join, d])
-            .cubic_to([bend, d], [bend, b], [0.0, b])
-            .close();
-        shape = shape.fill_path(&band, color);
+        base = base.stroke_path(&line(index, count, height, false), 1.25 + 1.5 * share, LineCap::Round, color);
     }
-    shape.view_box(W, height)
-}
+    let mid = height / 2.0;
+    if !links.is_empty() {
+        let out = if moving { t.ink.mix(t.panel, 0.45) } else { t.ink.mix(t.panel, 0.82) };
+        base = base.line([W * JOIN, mid], [W, mid], if moving { 2.0 } else { 1.25 }, LineCap::Round, out);
+        // A small light where the lines meet.
+        let ring: Vec<[f32; 2]> = (0..24)
+            .map(|k| {
+                let a = k as f32 / 24.0 * std::f32::consts::TAU;
+                [W * JOIN + 3.2 * a.cos(), mid + 3.2 * a.sin()]
+            })
+            .collect();
+        base = base.fill(ring, if moving { t.accent } else { t.ink_faint });
+    }
 
+    let mut layer = el().key("streams").grow(1.0).min_w(60.0).h(height).a11y_hidden().child(
+        canvas(base.view_box(W, height)).key("lines").absolute(0.0, 0.0).w_full().h_full(),
+    );
+    if moving {
+        for (index, link) in links.iter().enumerate().take(duallink_core::MAX_LINKS) {
+            if speeds[index] <= 0.05 {
+                continue;
+            }
+            let pulse = Shape::new().stroke_path(&line(index, count, height, true), 2.5, LineCap::Round, t.link(index));
+            for n in 0..crate::flow::PULSES {
+                layer = layer.child(
+                    canvas(pulse.clone().view_box(W, height))
+                        .key(format!("pulse-{}-{n}", link.info.id))
+                        .absolute(0.0, 0.0)
+                        .w_full()
+                        .h_full()
+                        .live_trim(&s.flow.pulses[index * crate::flow::PULSES + n]),
+                );
+            }
+        }
+    }
+    layer
+}
 /// The last minute of combined speed, as a quiet strip along the bottom of the picture.
 fn minute(s: &Ui, t: &Theme) -> Shape {
     const W: f32 = 900.0;
@@ -366,13 +393,8 @@ fn minute(s: &Ui, t: &Theme) -> Shape {
                 .zip(&below)
                 .map(|(sample, base)| base + sample.iter().find(|(link, _)| link == id).map_or(0.0, |(_, v)| *v))
                 .collect();
-            // Each second is its own four-cornered piece, so a band can never fold over itself.
-            for i in 1..above.len() {
-                shape = shape.fill(
-                    vec![[x(i - 1), y(below[i - 1])], [x(i - 1), y(above[i - 1])], [x(i), y(above[i])], [x(i), y(below[i])]],
-                    t.link(index).alpha(0.22),
-                );
-            }
+            let edge: Vec<[f32; 2]> = above.iter().enumerate().map(|(i, v)| [x(i), y(*v)]).collect();
+            shape = shape.stroke(edge, 1.25, t.link(index).mix(t.panel, 0.55));
             below = above;
         }
     } else {

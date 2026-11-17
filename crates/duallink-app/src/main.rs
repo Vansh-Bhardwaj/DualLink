@@ -4,6 +4,7 @@
 
 mod apps;
 mod client;
+mod flow;
 mod state;
 mod theme;
 mod view;
@@ -15,11 +16,11 @@ fn main() {
         return;
     }
     let spec = rune::AppSpec::<Ui> {
-        min_size: Some((900.0, 540.0)),
+        min_size: Some((900.0, 600.0)),
         scenes: view::SCENES,
         setup: Some(|ui, wake| ui.connect(wake)),
         poll: Some(|ui, _clock, _tx| ui.absorb()),
-        ..rune::AppSpec::new("DualLink", (1000.0, 560.0), Ui::default, view::view)
+        ..rune::AppSpec::new("DualLink", (1000.0, 640.0), Ui::default, view::view)
     };
     rune::App::new(spec).on_window(set_window_icon).run();
 }
