@@ -648,7 +648,9 @@ fn link_cards(s: &Ui, t: &Theme, links: &[&LinkStatus]) -> El {
         if let Some(ms) = link.latency_ms {
             facts.push(format!("{ms:.0} ms"));
         }
-        facts.push(link.info.kind.label().to_string());
+        if !link_title(&link.info).eq_ignore_ascii_case(link.info.kind.label()) && link.info.kind != LinkKind::UsbTether {
+            facts.push(link.info.kind.label().to_string());
+        }
         let open = s.expanded.as_deref() == Some(id.as_str());
         cards = cards.child(
             col()

@@ -12,10 +12,12 @@ Include the affected version, Windows version, reproduction steps, expected impa
 
 ## Security boundaries
 
-DualLink's desktop interface runs with ordinary user permissions. Windows asks for administrator approval only when the user explicitly enables boosting; a separate local helper then controls the packet-filter service and exits with the interface. Communication is restricted to a private local named pipe tied to the requesting process. Install only release artifacts published by this repository and verify their SHA-256 checksum. Release binaries are currently not Authenticode-signed, so Windows SmartScreen reputation is not guaranteed.
+The DualLink service runs as a Windows service with system rights; it owns the packet driver and carries combined connections. The window runs with ordinary user permissions and controls the service over a local named pipe that refuses remote clients and is open only to Administrators, SYSTEM and users signed in at the PC. Every request is size-limited and checked before it is applied, and the service saves its configuration only after it validates it.
 
-DualLink is not a VPN, firewall, anonymity service, or encryption product. It changes the source adapter used for selected outbound TCP connections; end-to-end security remains the responsibility of the selected application and destination protocol.
+Combined connections reach the service on a local listener. The service accepts a connection there only when it turned that exact connection around itself, matching both address and port; it closes anything else at once. Setup adds a Windows Firewall rule that lets the service accept these connections.
 
-During an active boost, the temporary local-filter configuration contains random credentials used only by the loopback proxy. The file and machine-wide recovery folder are restricted to Administrators and SYSTEM, and the previous configuration is restored when boosting stops.
+If the service stops for any reason, Windows closes its handle to the packet driver and the adapters return to normal; no traffic is left pointing at a part that is gone. Windows restarts the service after a failure.
 
-The in-app stable updater accepts only HTTPS GitHub release links, requires the exact installer entry in the published `SHA256SUMS.txt`, verifies the downloaded installer with SHA-256 before launch, and asks for confirmation before installation. Preview builds are shown for inspection but are not installed automatically.
+DualLink is not a VPN, firewall, anonymity service, or encryption product. It changes which connection carries outgoing TCP connections; end-to-end security remains the responsibility of each program and the protocol it uses.
+
+Install only release artifacts published by this repository and verify their SHA-256 checksum. Release binaries are currently not Authenticode-signed, so Windows SmartScreen reputation is not guaranteed. DualLink 5 does not update itself; **Check online** opens the releases page.
