@@ -21,3 +21,13 @@ lto = "thin"
 codegen-units = 4
 strip = true
 panic = "abort"
+
+# The interface framework is pre-release and pinned to one revision. It builds against its
+# own copies of these crates, and Cargo does not inherit patches from a dependency, so they
+# are repeated here. Keep every revision below identical to the one in crates/duallink-app.
+[patch.crates-io]
+winit = { git = "https://github.com/anomalyco/rune", rev = "3468f3a3b6c690336a94a8a57e66a149c2a422dc" }
+parley_engine = { git = "https://github.com/anomalyco/rune", rev = "3468f3a3b6c690336a94a8a57e66a149c2a422dc" }
+wgpu-hal = { git = "https://github.com/anomalyco/rune", rev = "3468f3a3b6c690336a94a8a57e66a149c2a422dc" }
+accesskit_windows = { git = "https://github.com/anomalyco/rune", rev = "3468f3a3b6c690336a94a8a57e66a149c2a422dc" }
+accesskit_macos = { git = "https://github.com/anomalyco/rune", rev = "3468f3a3b6c690336a94a8a57e66a149c2a422dc" }
