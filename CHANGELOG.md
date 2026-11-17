@@ -15,7 +15,9 @@ All notable DualLink changes are recorded here. Versions follow semantic version
 - Pages for Overview, Programs, Settings and Activity. Settings brings back opening with Windows, staying in the notification area when closed, appearance, update checks and the log folder; Activity shows each connection's details and the service's recent events.
 - A notification-area icon opens the window, switches combining on or off, and quits.
 - Shows this PC's connections even while the service isn't running.
-- Not yet done in this build: the installer and build scripts still package DualLink 4, and automatic updates are not in the new app yet; Settings links to the releases page. The packet engine has unit tests but has not yet been run against live traffic.
+- The installer now ships DualLink 5: the app, the service and the network driver. It removes DualLink 4's parts and no longer installs ProxiFyre. `tools\Package-Native.ps1` builds it.
+- First live check on Windows 11 with Ethernet and Wi-Fi: combining switched on and off, connections spread across both links, downloads completed, and traffic returned to normal when switched off.
+- Not yet in this build: automatic updates (Settings links to the releases page), sleep and cable-unplug testing, and per-crate third-party notices for the native build.
 
 ## 4.2.0-dev.1 - 2026-10-12
 
