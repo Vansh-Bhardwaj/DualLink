@@ -27,7 +27,27 @@ pub struct Speed {
     pub up: f32,
 }
 
+/// The pages of the window.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Page {
+    #[default]
+    Overview,
+    Programs,
+    Settings,
+    Activity,
+}
+
 pub struct Ui {
+    pub page: Page,
+    /// The window's width in points, for fitting the layout to it.
+    pub width: f32,
+    pub prefs: crate::prefs::Prefs,
+    /// Whether Windows opens DualLink at sign-in.
+    pub autostart: bool,
+    /// The end of the service's log, newest last.
+    pub log: Vec<String>,
+    /// Connections this PC has, found by the window itself, shown while the service can't be reached.
+    pub local: Vec<LinkStatus>,
     /// The latest report from the service; `None` until the first one arrives.
     pub status: Option<Status>,
     /// Why the service can't be reached, when it can't.
@@ -62,11 +82,19 @@ pub struct Ui {
 pub enum AppNews {
     Info(AppInfo),
     OpenNow(Vec<String>),
+    Log(Vec<String>),
+    Links(Vec<duallink_core::LinkInfo>),
 }
 
 impl Default for Ui {
     fn default() -> Self {
         Ui {
+            page: Page::Overview,
+            width: 1000.0,
+            prefs: crate::prefs::Prefs::default(),
+            autostart: false,
+            log: Vec::new(),
+            local: Vec::new(),
             status: None,
             offline: None,
             refused: None,
@@ -143,7 +171,9 @@ impl Ui {
                         fresh |= news_tx.send(AppNews::Info(AppInfo::read(path))).is_ok();
                     }
                 }
-                if news_tx.send(AppNews::OpenNow(lower)).is_err() {
+                if news_tx.send(AppNews::OpenNow(lower)).is_err() || news_tx.send(AppNews::Log(log_tail(40))).is_err()
+                    || news_tx.send(AppNews::Links(duallink_core::links::discover().unwrap_or_default())).is_err()
+                {
                     return;
                 }
                 if fresh {
@@ -201,6 +231,11 @@ impl Ui {
             changed |= match item {
                 AppNews::Info(app) => self.apps.insert(app.path.clone(), app).is_none(),
                 AppNews::OpenNow(open) => std::mem::replace(&mut self.open_now, open.clone()) != open,
+                AppNews::Log(lines) => std::mem::replace(&mut self.log, lines.clone()) != lines,
+                AppNews::Links(found) => {
+                    let local: Vec<LinkStatus> = found.into_iter().map(|info| idle_link(&self.config, info)).collect();
+                    std::mem::replace(&mut self.local, local.clone()) != local
+                }
             };
         }
         changed
@@ -269,8 +304,9 @@ impl Ui {
         }
     }
 
+    /// The connections to show: the service's, or while it can't be reached, the ones this PC has.
     pub fn links(&self) -> &[LinkStatus] {
-        self.status.as_ref().map_or(&[], |s| &s.links)
+        self.status.as_ref().filter(|_| self.offline.is_none()).map_or(&self.local, |s| &s.links)
     }
 
     pub fn state(&self) -> EngineState {
@@ -352,6 +388,32 @@ impl Ui {
             duallink_core::Scope::Chosen => &mut self.config.apps,
         }
     }
+}
+
+/// A connection the window found itself, with nothing measured yet.
+pub fn idle_link(config: &Config, info: duallink_core::LinkInfo) -> LinkStatus {
+    let choice = config.choice(&info.id);
+    LinkStatus {
+        info,
+        enabled: choice.enabled,
+        weight: choice.weight,
+        limit_mbps: choice.limit_mbps,
+        healthy: true,
+        active_connections: 0,
+        total_connections: 0,
+        failures: 0,
+        latency_ms: None,
+        downloaded: 0,
+        uploaded: 0,
+    }
+}
+
+/// The last `count` lines of the service's log, oldest first.
+pub fn log_tail(count: usize) -> Vec<String> {
+    let base = std::env::var_os("ProgramData").map_or_else(|| std::path::PathBuf::from(r"C:\ProgramData"), std::path::PathBuf::from);
+    let Ok(text) = std::fs::read_to_string(base.join("DualLink").join("service.log")) else { return Vec::new() };
+    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    lines[lines.len().saturating_sub(count)..].iter().map(|l| l.to_string()).collect()
 }
 
 /// The next speed cap up or down from `current` in [`CAPS_MBPS`].

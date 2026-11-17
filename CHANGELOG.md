@@ -10,8 +10,12 @@ All notable DualLink changes are recorded here. Versions follow semantic version
 - Replaces the separate filter service with one background service that watches packets and carries connections itself. If it stops, the adapters return to normal with nothing left pointing at it. No administrator prompt on each start.
 - Keeps browsers on traffic that can be combined by turning away QUIC and IPv6 for combined programs; both can be switched off.
 - New window: each connection is a thin line of its own colour running into one line that ends at the combined speed, with pulses of light travelling along each line, faster the more it carries. Pulses stay still when Windows asks for less motion. Laid out like a native desktop app: connections in a sidebar, a raised main panel, and settings in grouped cards with the platform's own switches and segmented controls. The on/off control wears a band of moving liquid metal while combining. DualLink 4's indigo and connection colours carry over, in light and dark.
-- Programs show as the icon and name Windows gives them. Programs open on screen are offered with one click.
-- Not yet done in this build: the installer and build scripts still package DualLink 4, and the tray icon, start with Windows, and updates are not in the new app yet. The packet engine has unit tests but has not yet been run against live traffic.
+- Programs show as the icon and name Windows gives them. Programs open on screen are offered with one click. Everything and Only chosen each keep their own list.
+- DualLink draws its own title bar, keeps the Windows snap and resize behaviour, and fits any window size: the sidebar narrows to icons and the speed moves above the lines in a small window.
+- Pages for Overview, Programs, Settings and Activity. Settings brings back opening with Windows, staying in the notification area when closed, appearance, update checks and the log folder; Activity shows each connection's details and the service's recent events.
+- A notification-area icon opens the window, switches combining on or off, and quits.
+- Shows this PC's connections even while the service isn't running.
+- Not yet done in this build: the installer and build scripts still package DualLink 4, and automatic updates are not in the new app yet; Settings links to the releases page. The packet engine has unit tests but has not yet been run against live traffic.
 
 ## 4.2.0-dev.1 - 2026-10-12
 

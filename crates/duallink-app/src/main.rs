@@ -6,8 +6,10 @@ mod apps;
 mod client;
 mod flow;
 mod fx;
+mod prefs;
 mod state;
 mod theme;
+mod tray;
 mod view;
 
 use state::Ui;
@@ -17,7 +19,7 @@ fn main() {
         return;
     }
     let spec = rune::AppSpec::<Ui> {
-        min_size: Some((960.0, 620.0)),
+        min_size: Some((640.0, 480.0)),
         scenes: view::SCENES,
         // Headless renders show the named scenes, not this PC's service.
         setup: Some(|ui, wake| {
@@ -26,13 +28,34 @@ fn main() {
             }
         }),
         poll: Some(|ui, _clock, _tx| ui.absorb()),
-        ..rune::AppSpec::new("DualLink", (1120.0, 760.0), Ui::default, view::view)
+        ..rune::AppSpec::new("DualLink", (1000.0, 660.0), Ui::default, view::view)
     };
-    let ui = Ui::default();
+    let headless = std::env::args().any(|a| a.starts_with("--snap") || a.starts_with("--tree") || a.starts_with("--script"));
+    let background = std::env::args().any(|a| a == "--background");
+    let mut ui = Ui::default();
+    ui.prefs = prefs::Prefs::load();
+    ui.autostart = prefs::autostart::enabled();
     let metal = fx::Metal::new(ui.metal_moving.clone());
-    rune::App::new(spec).init(move || ui).compositor(metal).on_window(set_window_icon).run();
+    let mut app = rune::App::new(spec)
+        .init(move || ui)
+        .titlebar(rune::Titlebar::new(40.0))
+        .compositor(metal)
+        .keep_running()
+        // Closing hides the window while DualLink stays in the notification area, unless the
+        // user turned that off.
+        .on_close(|ui, tx| {
+            if !ui.prefs.keep_in_tray {
+                tx.quit();
+            }
+        })
+        .on_window(set_window_icon);
+    if background {
+        app = app.windowless();
+    }
+    // The icon lives as long as the app; it is made on this thread, which runs the window's loop.
+    let _tray = if headless { None } else { tray::install(app.handle()) };
+    app.run();
 }
-
 /// `DualLink.exe --status | --on | --off` talks to the service from a terminal, for support.
 fn diagnose() -> bool {
     let argument = std::env::args().nth(1).unwrap_or_default();

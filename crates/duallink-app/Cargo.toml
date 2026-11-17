@@ -10,7 +10,9 @@ path = "src/main.rs"
 
 [dependencies]
 duallink-core.workspace = true
+serde.workspace = true
 serde_json.workspace = true
+tray-icon = "0.26"
 rune = { git = "https://github.com/anomalyco/rune", rev = "3468f3a3b6c690336a94a8a57e66a149c2a422dc", features = ["native-file-dialog"] }
 rune-kit = { git = "https://github.com/anomalyco/rune", rev = "3468f3a3b6c690336a94a8a57e66a149c2a422dc" }
 rune-fx = { git = "https://github.com/anomalyco/rune", rev = "3468f3a3b6c690336a94a8a57e66a149c2a422dc" }
@@ -21,6 +23,7 @@ windows = { version = "0.62", features = [
     "Win32_Graphics_Gdi",
     "Win32_Storage_FileSystem",
     "Win32_System_LibraryLoader",
+    "Win32_System_Registry",
     "Win32_System_Threading",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",

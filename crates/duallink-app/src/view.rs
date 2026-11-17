@@ -1,26 +1,34 @@
 //! How the window is drawn.
 //!
-//! A sidebar lists the connections on the window's ground; the main panel is raised beside it.
-//! At the top of the panel each connection is a thin line in its own colour running into one
-//! line that ends at the combined speed, with pulses travelling along each line while it
-//! carries traffic. Settings sit below in grouped cards.
+//! DualLink draws its own title bar. Below it, a sidebar holds the pages and the connections,
+//! and narrows to icons in a small window; the main panel is raised beside it. The overview
+//! shows each connection as a thin line in its own colour running into one line that ends at
+//! the combined speed, with pulses travelling along each line while it carries traffic.
 
 use crate::fx::metal;
-use crate::state::{HISTORY, Speed, Ui, step_cap};
+use crate::prefs::{Appearance, autostart};
+use crate::state::{HISTORY, Page, Speed, Ui, step_cap};
 use crate::theme::{Theme, theme};
 use duallink_core::{Config, EngineState, LinkInfo, LinkKind, LinkStatus, Mode, Scope, Status};
-use rune::tok::motion;
+use rune::tok::{TextStyle, motion, type_};
 use rune::{Align, Color, Cx, El, FileDialogOptions, LineCap, Path, ScrollSpec, Shape, Tx, canvas, col, el, row, text};
 use std::sync::atomic::Ordering;
 
 const MODES: [(Mode, &str); 3] = [(Mode::Smart, "Smart"), (Mode::Balanced, "Even"), (Mode::Backup, "Backup")];
-const SIDEBAR: f32 = 264.0;
+const TITLEBAR: f32 = 40.0;
+const SIDEBAR: f32 = 236.0;
+const SIDEBAR_COMPACT: f32 = 60.0;
+/// Below this window width the sidebar shows icons only.
+const COMPACT_BELOW: f32 = 880.0;
+/// Below this panel width the speed sits above the lines instead of beside them.
+const NARROW_BELOW: f32 = 620.0;
 /// Height of the picture.
-const PICTURE: f32 = 232.0;
+const PICTURE: f32 = 196.0;
 /// Width of the picture's drawing space; it stretches to fit.
 const W: f32 = 400.0;
 /// Where the lines meet, as a share of the width.
 const JOIN: f32 = 0.62;
+const RELEASES: &str = "https://github.com/Vansh-Bhardwaj/DualLink/releases";
 
 fn mbps(value: f32) -> String {
     if value >= 100.0 { format!("{value:.0}") } else { format!("{value:.1}") }
@@ -37,18 +45,41 @@ fn bytes(value: u64) -> String {
     if unit == 0 { format!("{amount:.0} {}", UNITS[unit]) } else { format!("{amount:.1} {}", UNITS[unit]) }
 }
 
+/// How the window is laid out at its current width.
+#[derive(Clone, Copy)]
+struct Fit {
+    compact: bool,
+    narrow: bool,
+}
+
 pub fn view(s: &Ui, cx: &mut Cx<Ui>) -> El {
-    let mut t = theme(cx.system_dark(), cx.env().scale);
+    let dark = match s.prefs.appearance {
+        Appearance::Auto => cx.system_dark(),
+        Appearance::Light => false,
+        Appearance::Dark => true,
+    };
+    let mut t = theme(dark, cx.env().scale);
     t.still = cx.system_reduced_motion();
+    cx.caption_color(t.ink_soft);
+    let trailing = cx.chrome_insets().trailing;
     s.flow.start();
     s.metal_moving.store(s.config.enabled && s.offline.is_none() && !t.still, Ordering::Relaxed);
-    let body = row()
+
+    let compact = s.width < COMPACT_BELOW;
+    let panel_width = s.width - if compact { SIDEBAR_COMPACT } else { SIDEBAR } - 8.0;
+    let fit = Fit { compact, narrow: panel_width < NARROW_BELOW };
+    let body = col()
         .key("window")
         .w_full()
         .h_full()
         .fill(t.ground)
-        .child(sidebar(s, &t))
-        .child(main_panel(s, &t));
+        .on_layout(|s: &mut Ui, rect| {
+            if (s.width - rect[2]).abs() > 0.5 {
+                s.width = rect[2];
+            }
+        })
+        .child(titlebar(s, &t, trailing))
+        .child(row().key("body").w_full().grow(1.0).min_h(0.0).child(sidebar(s, &t, fit)).child(main_panel(s, &t, fit)));
     rune_kit::root(body, Vec::new())
 }
 
@@ -140,10 +171,27 @@ fn sign_button(t: &Theme, key: &str, sign: &str, hint: String, act: impl Fn(&mut
         .child(text(sign.to_string()).font(t.ty.body_medium).color(t.ink).a11y_hidden())
 }
 
+/// A small button with a word on it.
+fn word_button(t: &Theme, key: &str, label: &str) -> El {
+    el().key(key.to_string())
+        .role("button")
+        .label(label.to_string())
+        .focusable(true)
+        .h(28.0)
+        .px(12.0)
+        .radius(7.0)
+        .fill(t.track)
+        .hover(t.hover)
+        .press(t.press)
+        .center()
+        .child(text(label.to_string()).font(t.ty.body_medium).color(t.ink).a11y_hidden())
+}
+
 /// A heading above a card, as in the platform's settings.
 fn section(t: &Theme, key: &str, title: &str, rows: Vec<El>) -> El {
     let mut card = col()
         .key("card")
+        .w_full()
         .padding(4.0)
         .radius(12.0)
         .fill(t.card)
@@ -159,6 +207,7 @@ fn section(t: &Theme, key: &str, title: &str, rows: Vec<El>) -> El {
     }
     col()
         .key(key.to_string())
+        .w_full()
         .gap(8.0)
         .child(text(title.to_string()).key("heading").font(t.ty.section).color(t.ink_soft).ml(12.0))
         .child(card)
@@ -168,60 +217,154 @@ fn section(t: &Theme, key: &str, title: &str, rows: Vec<El>) -> El {
 fn setting(t: &Theme, key: &str, label: &str, control: El) -> El {
     row()
         .key(key.to_string())
-        .h(44.0)
+        .w_full()
+        .min_h(44.0)
         .px(12.0)
+        .py(6.0)
         .center_y()
         .justify_between()
         .gap(16.0)
-        .child(text(label.to_string()).key("label").font(t.ty.body).color(t.ink))
+        .child(text(label.to_string()).key("label").font(t.ty.body).color(t.ink).shrink().min_w(0.0).wrap())
         .child(control)
 }
 
-// ---------------------------------------------------------------------------------------------
-// Sidebar.
+/// One line of explanation inside a card.
+fn note(t: &Theme, key: &str, words: &str) -> El {
+    text(words.to_string()).key(key.to_string()).font(t.ty.small).color(t.ink_soft).wrap().px(12.0).py(10.0)
+}
 
-fn sidebar(s: &Ui, t: &Theme) -> El {
-    let links = s.ordered();
-    let mut list = col().key("links").w_full().gap(2.0);
-    if links.is_empty() {
-        let message = if s.status.is_some() { "Plug in a cable, join Wi-Fi or tether a phone" } else { "Looking for connections" };
-        list = list.child(text(message).key("empty").font(t.ty.small).color(t.ink_faint).wrap().px(10.0).py(8.0));
-    }
-    for (index, link) in links.iter().enumerate() {
-        list = list.child(link_row(s, t, link, index));
-    }
-    col()
-        .key("sidebar")
-        .w(SIDEBAR)
-        .h_full()
-        .px(10.0)
-        .pt(14.0)
-        .pb(12.0)
-        .gap(4.0)
+// ---------------------------------------------------------------------------------------------
+// Title bar and sidebar.
+
+/// DualLink's own title bar. Windows draws its minimise, maximise and close buttons over
+/// the right-hand end; the rest of the bar drags the window.
+fn titlebar(s: &Ui, t: &Theme, trailing: f32) -> El {
+    let (word, dot) = summary(s, t);
+    row()
+        .key("titlebar")
+        .w_full()
+        .h(TITLEBAR)
+        .pl(14.0)
+        .pr(trailing + 12.0)
+        .gap(10.0)
+        .center_y()
+        .window_drag()
+        .child(mark(t, 20.0))
+        .child(text("DualLink").key("name").font(t.ty.body_medium).color(t.ink))
+        .child(el().key("gap").grow(1.0))
         .child(
             row()
-                .key("brand")
-                .h(36.0)
-                .px(8.0)
-                .gap(10.0)
+                .key("state")
+                .h(24.0)
+                .px(10.0)
+                .gap(7.0)
                 .center_y()
-                .child(mark(t))
-                .child(text("DualLink").key("name").font(t.ty.title).color(t.ink)),
+                .radius(12.0)
+                .fill(t.card)
+                .border(t.hair, t.card_border)
+                .child(el().key("dot").size(6.0, 6.0).radius(3.0).fill(dot).shadow(0.0, 6.0, dot.alpha(0.6)).a11y_hidden())
+                .child(text(word).key("word").font(t.ty.small).color(t.ink_soft)),
         )
-        .child(text("Connections").key("heading").font(t.ty.section).color(t.ink_faint).ml(10.0).mt(18.0).mb(4.0))
-        .child(el().key("scroll").grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(list))
-        .child(master(s, t))
 }
 
 /// DualLink's mark: two paths running together into one.
-fn mark(t: &Theme) -> El {
+fn mark(t: &Theme, size: f32) -> El {
     let (top, bottom) = (t.link(1), t.link(0));
     let shape = Shape::new()
         .stroke_path(&Path::new().move_to([10.0, 14.0]).cubic_to([19.0, 14.0], [19.0, 24.0], [27.0, 24.0]), 5.5, LineCap::Round, top)
         .stroke_path(&Path::new().move_to([10.0, 34.0]).cubic_to([19.0, 34.0], [19.0, 24.0], [27.0, 24.0]), 5.5, LineCap::Round, bottom)
         .line([27.0, 24.0], [38.0, 24.0], 5.5, LineCap::Round, t.ink)
         .view_box(48.0, 48.0);
-    el().key("mark").size(24.0, 24.0).radius(6.0).fill(t.card).border(t.hair, t.card_border).shape(shape).a11y_hidden()
+    el().key("mark").size(size, size).radius(size / 4.0).fill(t.card).border(t.hair, t.card_border).shape(shape).a11y_hidden()
+}
+
+/// A small drawn icon for each page, in a 16-point square.
+fn page_icon(page: Page, color: Color) -> Shape {
+    let shape = match page {
+        Page::Overview => Shape::new()
+            .stroke_path(&Path::new().move_to([2.0, 4.0]).cubic_to([6.0, 4.0], [6.0, 8.0], [10.0, 8.0]), 1.6, LineCap::Round, color)
+            .stroke_path(&Path::new().move_to([2.0, 12.0]).cubic_to([6.0, 12.0], [6.0, 8.0], [10.0, 8.0]), 1.6, LineCap::Round, color)
+            .line([10.0, 8.0], [14.0, 8.0], 1.6, LineCap::Round, color),
+        Page::Programs => {
+            let square = |x: f32, y: f32| vec![[x, y], [x + 5.0, y], [x + 5.0, y + 5.0], [x, y + 5.0]];
+            Shape::new().fill(square(2.0, 2.0), color).fill(square(9.0, 2.0), color).fill(square(2.0, 9.0), color).fill(square(9.0, 9.0), color)
+        }
+        Page::Settings => Shape::new()
+            .line([2.0, 5.0], [14.0, 5.0], 1.6, LineCap::Round, color)
+            .line([2.0, 11.0], [14.0, 11.0], 1.6, LineCap::Round, color)
+            .fill(circle([10.0, 5.0], 2.3), color)
+            .fill(circle([6.0, 11.0], 2.3), color),
+        Page::Activity => Shape::new().stroke([[1.5, 8.5], [4.5, 8.5], [6.5, 3.0], [9.5, 13.0], [11.5, 8.5], [14.5, 8.5]], 1.6, color),
+    };
+    shape.view_box(16.0, 16.0)
+}
+
+fn page_name(page: Page) -> &'static str {
+    match page {
+        Page::Overview => "Overview",
+        Page::Programs => "Programs",
+        Page::Settings => "Settings",
+        Page::Activity => "Activity",
+    }
+}
+
+fn nav_item(s: &Ui, t: &Theme, page: Page, compact: bool) -> El {
+    let here = s.page == page;
+    let color = if here { t.ink } else { t.ink_soft };
+    let mut item = row()
+        .key(format!("nav-{}", page_name(page)))
+        .h(34.0)
+        .px(if compact { 0.0 } else { 10.0 })
+        .gap(10.0)
+        .center_y()
+        .radius(8.0)
+        .fill(if here { t.selected } else { Color::TRANSPARENT })
+        .hover(t.hover)
+        .press(t.press)
+        .focusable(true)
+        .role("tab")
+        .label(page_name(page))
+        .checked(here)
+        .on_press(move |s: &mut Ui| s.page = page)
+        .child(el().key("icon").size(16.0, 16.0).shape(page_icon(page, color)).a11y_hidden());
+    if compact {
+        item = item.w(40.0).justify_center().help(page_name(page));
+    } else {
+        item = item.w_full().child(text(page_name(page)).key("name").font(t.ty.body_medium).color(color).a11y_hidden());
+    }
+    item
+}
+
+fn sidebar(s: &Ui, t: &Theme, fit: Fit) -> El {
+    let mut bar = col()
+        .key("sidebar")
+        .w(if fit.compact { SIDEBAR_COMPACT } else { SIDEBAR })
+        .h_full()
+        .px(10.0)
+        .pt(4.0)
+        .pb(10.0)
+        .gap(2.0)
+        .items_center();
+    for page in [Page::Overview, Page::Programs, Page::Settings, Page::Activity] {
+        bar = bar.child(nav_item(s, t, page, fit.compact));
+    }
+    if fit.compact {
+        bar = bar.child(el().key("gap").grow(1.0));
+    } else {
+        let links = s.ordered();
+        let mut list = col().key("links").w_full().gap(2.0);
+        if links.is_empty() {
+            let message = "Plug in a cable, join Wi-Fi or tether a phone";
+            list = list.child(text(message).key("empty").font(t.ty.small).color(t.ink_faint).wrap().px(10.0).py(8.0));
+        }
+        for (index, link) in links.iter().enumerate() {
+            list = list.child(link_row(s, t, link, index));
+        }
+        bar = bar
+            .child(text("Connections").key("heading").font(t.ty.section).color(t.ink_faint).self_start().ml(10.0).mt(18.0).mb(4.0))
+            .child(el().key("scroll").w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(list));
+    }
+    bar.child(master(s, t, fit.compact))
 }
 
 fn link_title(info: &LinkInfo) -> String {
@@ -231,27 +374,36 @@ fn link_title(info: &LinkInfo) -> String {
     }
 }
 
-/// A connection in the sidebar: its colour, name and speed. Pressing it opens its settings.
-fn link_row(s: &Ui, t: &Theme, link: &LinkStatus, index: usize) -> El {
-    let id = link.info.id.clone();
-    let choice = s.config.choice(&id);
-    let speed = s.speeds.get(&id).copied().unwrap_or(Speed::default());
-    let open = s.expanded.as_deref() == Some(id.as_str());
-    let color = if !choice.enabled {
+/// The colour a connection shows in.
+fn link_color(s: &Ui, t: &Theme, link: &LinkStatus, index: usize) -> Color {
+    if !s.config.choice(&link.info.id).enabled {
         t.ink_faint
     } else if !link.healthy {
         t.bad
     } else {
         t.link(index)
-    };
-    let detail = if !choice.enabled {
-        "Not used".to_string()
+    }
+}
+
+fn link_detail(s: &Ui, link: &LinkStatus) -> String {
+    if !s.config.choice(&link.info.id).enabled {
+        "Not used".into()
     } else if !link.healthy {
-        "Not responding".to_string()
+        "Not responding".into()
     } else {
         link.latency_ms.map_or_else(|| link.info.kind.label().to_string(), |ms| format!("{ms:.0} ms"))
-    };
-    let ink = if choice.enabled { t.ink } else { t.ink_faint };
+    }
+}
+
+/// A connection: its colour, name and speed. Pressing it opens its settings on the overview.
+fn link_row(s: &Ui, t: &Theme, link: &LinkStatus, index: usize) -> El {
+    let id = link.info.id.clone();
+    let enabled = s.config.choice(&id).enabled;
+    let speed = s.speeds.get(&id).copied().unwrap_or(Speed::default());
+    let open = s.expanded.as_deref() == Some(id.as_str()) && s.page == Page::Overview;
+    let color = link_color(s, t, link, index);
+    let detail = link_detail(s, link);
+    let ink = if enabled { t.ink } else { t.ink_faint };
     row()
         .key(format!("link-{id}"))
         .w_full()
@@ -268,7 +420,9 @@ fn link_row(s: &Ui, t: &Theme, link: &LinkStatus, index: usize) -> El {
         .label(format!("{}, {} megabits per second, {detail}", link_title(&link.info), mbps(speed.down)))
         .expanded(open)
         .on_press(move |s: &mut Ui| {
-            s.expanded = if s.expanded.as_deref() == Some(id.as_str()) { None } else { Some(id.clone()) };
+            let showing = s.page == Page::Overview && s.expanded.as_deref() == Some(id.as_str());
+            s.expanded = if showing { None } else { Some(id.clone()) };
+            s.page = Page::Overview;
         })
         .child(el().key("colour").size(8.0, 8.0).radius(4.0).fill(color).shadow(0.0, 6.0, color.alpha(0.5)).a11y_hidden())
         .child(
@@ -285,26 +439,27 @@ fn link_row(s: &Ui, t: &Theme, link: &LinkStatus, index: usize) -> El {
 
 /// The one control that matters: combining on or off. While on, it wears a band of
 /// polished, slowly moving chrome.
-fn master(s: &Ui, t: &Theme) -> El {
+fn master(s: &Ui, t: &Theme, compact: bool) -> El {
     let on = s.config.enabled;
     let available = s.offline.is_none();
     let (word, dot) = summary(s, t);
+    let size = if compact { 44.0 } else { 48.0 };
     let mut pill = row()
         .key("master")
-        .h(48.0)
-        .w_full()
-        .pl(16.0)
-        .pr(8.0)
+        .h(size)
+        .radius(size / 2.0)
         .gap(10.0)
         .center_y()
-        .radius(24.0)
+        .mt(8.0)
         .fill(t.card)
         .role("switch")
         .label("Combine connections")
         .checked(on)
+        .help(if available { "Combine connections" } else { "The DualLink service isn't running" })
         .focusable(available)
         .hover(t.hover)
         .press(t.press);
+    pill = if compact { pill.w(size).justify_center() } else { pill.w_full().pl(16.0).pr(8.0) };
     if available {
         pill = pill.on_press(|s: &mut Ui| {
             s.config.enabled = !s.config.enabled;
@@ -312,39 +467,40 @@ fn master(s: &Ui, t: &Theme) -> El {
         });
     }
     if on && available {
-        pill = pill.child(metal(3.5).absolute(0.0, 0.0).w_full().h_full().radius(24.0).a11y_hidden());
+        pill = pill.child(metal(3.5).absolute(0.0, 0.0).w_full().h_full().radius(size / 2.0).a11y_hidden());
     } else {
         pill = pill.border(t.hair, t.card_border);
     }
-    pill.child(el().key("dot").size(8.0, 8.0).radius(4.0).fill(dot).shadow(0.0, 8.0, dot.alpha(0.6)).a11y_hidden())
-        .child(text(word).key("word").font(t.ty.body_medium).color(t.ink).grow(1.0).a11y_hidden())
-        .child(
-            el().key("knob-track")
-                .size(38.0, 22.0)
-                .radius(11.0)
-                .fill(if on { t.accent } else { t.control_off })
-                .motion(motion::SNAPPY)
-                .a11y_hidden()
-                .child(
-                    el().key("knob")
-                        .size(18.0, 18.0)
-                        .absolute(if on { 18.0 } else { 2.0 }, 2.0)
-                        .radius(9.0)
-                        .fill(t.knob)
-                        .shadow(1.0, 3.0, t.knob_shadow),
-                ),
-        )
-        .mt(8.0)
+    pill = pill.child(el().key("dot").size(8.0, 8.0).radius(4.0).fill(dot).shadow(0.0, 8.0, dot.alpha(0.6)).a11y_hidden());
+    if compact {
+        return pill;
+    }
+    pill.child(text(word).key("word").font(t.ty.body_medium).color(t.ink).grow(1.0).a11y_hidden()).child(
+        el().key("knob-track")
+            .size(38.0, 22.0)
+            .radius(11.0)
+            .fill(if on { t.accent } else { t.control_off })
+            .motion(motion::SNAPPY)
+            .a11y_hidden()
+            .child(
+                el().key("knob")
+                    .size(18.0, 18.0)
+                    .absolute(if on { 18.0 } else { 2.0 }, 2.0)
+                    .radius(9.0)
+                    .fill(t.knob)
+                    .shadow(1.0, 3.0, t.knob_shadow),
+            ),
+    )
 }
 
 /// The engine's state in a word or two, and a colour.
 fn summary(s: &Ui, t: &Theme) -> (&'static str, Color) {
     if s.offline.is_some() {
-        return ("Unavailable", t.bad);
+        return ("Service not running", t.bad);
     }
     match s.status.as_ref().map(|status| status.state) {
         None => ("Connecting", t.ink_faint),
-        Some(EngineState::Off) => ("Combine", t.ink_faint),
+        Some(EngineState::Off) => ("Off", t.ink_faint),
         Some(EngineState::Starting) => ("Starting", t.warn),
         Some(EngineState::On) => ("Combining", t.accent),
         Some(EngineState::NoLinks) => ("No connection", t.warn),
@@ -355,61 +511,69 @@ fn summary(s: &Ui, t: &Theme) -> (&'static str, Color) {
 // ---------------------------------------------------------------------------------------------
 // Main panel.
 
-fn main_panel(s: &Ui, t: &Theme) -> El {
+fn main_panel(s: &Ui, t: &Theme, fit: Fit) -> El {
     let total = s.total();
-    let links = s.ordered();
-    let in_use = links.iter().filter(|l| s.config.choice(&l.info.id).enabled).count();
-    let title = match in_use {
-        0 => "No connections".to_string(),
-        1 => "1 connection".to_string(),
-        n => format!("{n} connections"),
+    let title = match s.page {
+        Page::Overview => {
+            let in_use = s.ordered().iter().filter(|l| s.config.choice(&l.info.id).enabled).count();
+            match in_use {
+                0 => "No connections".to_string(),
+                1 => "1 connection".to_string(),
+                n => format!("{n} connections"),
+            }
+        }
+        page => page_name(page).to_string(),
     };
-    let mut content = col().key("content").w_full().px(28.0).pb(28.0).gap(26.0).child(picture(s, t, &links));
-    if let Some(card) = link_settings(s, t) {
-        content = content.child(card);
+    let content = match s.page {
+        Page::Overview => overview(s, t, fit),
+        Page::Programs => programs_page(s, t),
+        Page::Settings => settings_page(s, t),
+        Page::Activity => activity_page(s, t),
+    };
+    let mut bar = row().key("bar").w_full().h(48.0).px(if fit.narrow { 18.0 } else { 24.0 }).gap(12.0).center_y().child(
+        text(title).key("title").font(t.ty.body_medium).color(t.ink).grow(1.0).min_w(0.0).truncate(),
+    );
+    if s.page == Page::Overview {
+        bar = bar
+            .child(text(format!("↑ {} Mbps", mbps(total.up))).key("up").font(t.ty.body).color(t.ink_soft).help("Upload"))
+            .child(text(format!("Peak {}", mbps(s.peak))).key("peak").font(t.ty.body).color(t.ink_faint));
     }
-    content = content.child(programs(s, t)).child(sharing(s, t));
     col()
         .key("main")
         .grow(1.0)
         .min_w(0.0)
-        .mt(8.0)
+        .h_full()
         .mr(8.0)
         .mb(8.0)
-        .radius(14.0)
-        .clip_rounded(14.0)
+        .radius(12.0)
+        .clip_rounded(12.0)
         .fill(t.panel)
         .border(t.hair, t.card_border)
+        .child(bar)
+        .children(notice(s, t, fit))
         .child(
-            row()
-                .key("bar")
-                .h(52.0)
-                .px(24.0)
-                .gap(8.0)
-                .center_y()
-                .child(text("DualLink").key("crumb").font(t.ty.body).color(t.ink_faint))
-                .child(text("/").key("slash").font(t.ty.body).color(t.ink_faint))
-                .child(text(title).key("title").font(t.ty.body_medium).color(t.ink))
-                .child(el().key("gap").grow(1.0))
-                .child(text(format!("↑ {} Mbps", mbps(total.up))).key("up").font(t.ty.body).color(t.ink_soft).help("Upload"))
-                .child(text(format!("Peak {}", mbps(s.peak))).key("peak").font(t.ty.body).color(t.ink_faint).ml(12.0)),
+            el().key(format!("scroll-{}", page_name(s.page)))
+                .w_full()
+                .grow(1.0)
+                .min_h(0.0)
+                .scroll(ScrollSpec { stick_bottom: false })
+                .scroll_edge_fade(16.0)
+                .child(content.w_full().px(if fit.narrow { 18.0 } else { 28.0 }).pt(4.0).pb(28.0)),
         )
-        .children(notice(s, t))
-        .child(el().key("scroll").grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).scroll_edge_fade(16.0).child(content))
 }
 
 /// A line under the bar, only when something needs the user's attention.
-fn notice(s: &Ui, t: &Theme) -> Option<El> {
+fn notice(s: &Ui, t: &Theme, fit: Fit) -> Option<El> {
     let problem = s.status.as_ref().and_then(|status| status.problem.clone());
     let (message, color) = if s.offline.is_some() {
-        ("The DualLink service isn't running. Restart the PC or run setup again.".to_string(), t.bad)
+        ("The DualLink service isn't running, so nothing is being combined. Restart the PC, or run DualLink's setup again.".to_string(), t.bad)
     } else if let Some(refused) = &s.refused {
         (format!("Not saved. {refused}"), t.warn)
     } else {
         (problem?, if s.state() == EngineState::Failed { t.bad } else { t.warn })
     };
     Some(
-        row().key("notice").px(24.0).pb(8.0).child(
+        row().key("notice").w_full().px(if fit.narrow { 18.0 } else { 24.0 }).pb(8.0).child(
             row()
                 .key("box")
                 .w_full()
@@ -422,38 +586,93 @@ fn notice(s: &Ui, t: &Theme) -> Option<El> {
                 .border(t.hair, color.alpha(0.4))
                 .live_region(rune::LiveRegion::Polite)
                 .child(el().key("mark").size(6.0, 6.0).radius(3.0).fill(color).a11y_hidden())
-                .child(text(message).key("message").font(t.ty.body).color(t.ink).wrap()),
+                .child(text(message).key("message").font(t.ty.body).color(t.ink).grow(1.0).min_w(0.0).wrap()),
         ),
     )
 }
 
+// ---------------------------------------------------------------------------------------------
+// Overview.
+
+fn overview(s: &Ui, t: &Theme, fit: Fit) -> El {
+    let links = s.ordered();
+    let mut page = col().key("overview").gap(24.0).child(picture(s, t, &links, fit.narrow)).child(totals(s, t));
+    if let Some(card) = link_settings(s, t) {
+        page = page.child(card);
+    } else if fit.compact {
+        // The sidebar has no room for the connections, so they're listed here.
+        let mut rows: Vec<El> = links.iter().enumerate().map(|(index, link)| link_row(s, t, link, index)).collect();
+        if rows.is_empty() {
+            rows.push(note(t, "none", "No connections found. Plug in a cable, join Wi-Fi or tether a phone."));
+        }
+        page = page.child(section(t, "connections", "Connections", rows));
+    }
+    page
+}
+
+/// A few numbers for this session, each in its own tile.
+fn totals(s: &Ui, t: &Theme) -> El {
+    let links = s.ordered();
+    let down: u64 = links.iter().map(|l| l.downloaded).sum();
+    let up: u64 = links.iter().map(|l| l.uploaded).sum();
+    let open = s.status.as_ref().filter(|_| s.offline.is_none()).map_or(0, |status| status.active_connections);
+    let fastest = links
+        .iter()
+        .enumerate()
+        .max_by(|a, b| {
+            let speed = |l: &LinkStatus| s.speeds.get(&l.info.id).map_or(0.0, |v| v.down);
+            speed(a.1).total_cmp(&speed(b.1))
+        })
+        .filter(|(_, l)| s.speeds.get(&l.info.id).is_some_and(|v| v.down > 0.05));
+    let tile = |key: &str, label: &str, value: String, dot: Option<Color>| {
+        let mut figure = row().key("figure").gap(8.0).center_y();
+        if let Some(color) = dot {
+            figure = figure.child(el().key("dot").size(8.0, 8.0).radius(4.0).fill(color).a11y_hidden());
+        }
+        col()
+            .key(key.to_string())
+            .grow(1.0)
+            .min_w(140.0)
+            .padding(14.0)
+            .gap(6.0)
+            .radius(12.0)
+            .fill(t.card)
+            .border(t.hair, t.card_border)
+            .child(text(label.to_string()).key("label").font(t.ty.small).color(t.ink_soft))
+            .child(figure.child(text(value).key("value").font(TextStyle { size: 18.0, ..t.ty.figure }).color(t.ink).truncate()))
+    };
+    row()
+        .key("totals")
+        .w_full()
+        .gap(12.0)
+        .flex_wrap()
+        .child(tile("down", "Downloaded", bytes(down), None))
+        .child(tile("up", "Uploaded", bytes(up), None))
+        .child(tile("open", "Open now", open.to_string(), None))
+        .child(match fastest {
+            Some((index, link)) => tile("fastest", "Busiest", link_title(&link.info), Some(t.link(index))),
+            None => tile("fastest", "Busiest", "—".into(), None),
+        })
+}
+
 /// The lines and the combined speed.
-fn picture(s: &Ui, t: &Theme, links: &[&LinkStatus]) -> El {
+fn picture(s: &Ui, t: &Theme, links: &[&LinkStatus], narrow: bool) -> El {
     let total = s.total();
     let on = s.state() == EngineState::On;
-    col()
-        .key("picture")
-        .w_full()
-        .gap(6.0)
-        .child(
-            row()
-                .key("flow")
-                .w_full()
-                .h(PICTURE)
-                .center_y()
-                .child(streams(s, t, links))
-                .child(
-                    col()
-                        .key("readout")
-                        .w(230.0)
-                        .items_end()
-                        .gap(4.0)
-                        .label(format!("{} megabits per second combined", mbps(total.down)))
-                        .child(text(mbps(total.down)).key("speed").font(t.ty.display).color(if on { t.ink } else { t.ink_faint }).a11y_hidden())
-                        .child(text("Mbps combined").key("unit").font(t.ty.body).color(t.ink_soft).a11y_hidden()),
-                ),
-        )
-        .child(canvas(minute(s, t)).key("minute").w_full().h(36.0).a11y_hidden())
+    let size = if narrow { 52.0 } else { 72.0 };
+    let display = TextStyle { size, line_height: size * 1.05, tracking: -size * 0.03, ..t.ty.display };
+    let readout = col()
+        .key("readout")
+        .gap(2.0)
+        .label(format!("{} megabits per second combined", mbps(total.down)))
+        .child(text(mbps(total.down)).key("speed").font(display).color(if on { t.ink } else { t.ink_faint }).a11y_hidden())
+        .child(text("Mbps combined").key("unit").font(t.ty.body).color(t.ink_soft).a11y_hidden());
+    let flow = if narrow {
+        col().key("flow").w_full().gap(10.0).child(readout).child(streams(s, t, links))
+    } else {
+        row().key("flow").w_full().h(PICTURE).center_y().gap(16.0).child(streams(s, t, links)).child(readout.w(200.0).items_end())
+    };
+    col().key("picture").w_full().gap(6.0).child(flow).child(canvas(minute(s, t)).key("minute").w_full().h(32.0).a11y_hidden())
 }
 
 /// A connection's line: from its place on the left, curving into the meeting point. With
@@ -490,9 +709,7 @@ fn streams(s: &Ui, t: &Theme, links: &[&LinkStatus]) -> El {
             t.link(index).mix(t.panel, if flowing { 0.65 - 0.45 * share } else { 0.75 })
         };
         base = base.stroke_path(&line(index, count, false), 1.25 + 1.5 * share, LineCap::Round, color);
-        // Where the line starts, a dot in the connection's colour.
-        let dot = if enabled { t.link(index) } else { t.ink_faint };
-        base = base.fill(circle([6.0, PICTURE / count as f32 * (index as f32 + 0.5)], 3.5), dot);
+        base = base.fill(circle([6.0, PICTURE / count as f32 * (index as f32 + 0.5)], 3.5), link_color(s, t, link, index));
     }
     if !links.is_empty() {
         let out = if moving { t.ink.mix(t.panel, 0.45) } else { t.ink.mix(t.panel, 0.82) };
@@ -500,7 +717,7 @@ fn streams(s: &Ui, t: &Theme, links: &[&LinkStatus]) -> El {
         base = base.fill(circle([W * JOIN, mid], 3.2), if moving { t.accent } else { t.ink_faint });
     }
 
-    let mut layer = el().key("streams").grow(1.0).min_w(60.0).h(PICTURE).a11y_hidden().child(
+    let mut layer = el().key("streams").grow(1.0).w_full().min_w(60.0).h(PICTURE).a11y_hidden().child(
         canvas(base.view_box(W, PICTURE)).key("lines").absolute(0.0, 0.0).w_full().h_full(),
     );
     if moving {
@@ -536,7 +753,7 @@ fn circle(centre: [f32; 2], radius: f32) -> Vec<[f32; 2]> {
 /// The last minute of speed: one thin line per connection, stacked.
 fn minute(s: &Ui, t: &Theme) -> Shape {
     const MW: f32 = 900.0;
-    const H: f32 = 36.0;
+    const H: f32 = 32.0;
     let mut shape = Shape::new();
     let ids: Vec<&str> = s.ordered().iter().map(|l| l.info.id.as_str()).collect();
     if s.history.len() >= 2 && !ids.is_empty() {
@@ -627,72 +844,26 @@ fn link_settings(s: &Ui, t: &Theme) -> Option<El> {
     Some(section(t, "link-settings", &link_title(&link.info), rows))
 }
 
-fn programs(s: &Ui, t: &Theme) -> El {
+// ---------------------------------------------------------------------------------------------
+// Programs.
+
+fn programs_page(s: &Ui, t: &Theme) -> El {
     let everything = s.config.scope == Scope::Everything;
-    let mut tiles = row().key("tiles").flex_wrap().gap(4.0).w_full().padding(8.0);
-    for (index, entry) in s.programs().iter().enumerate() {
-        let info = s.info(entry);
-        let name = info.map_or_else(|| crate::apps::display_name(entry), |app| app.name.clone());
-        let (state, hint) = if everything { ("left alone", "Left alone · click to combine") } else { ("combined", "Combined · click to remove") };
-        tiles = tiles.child(
-            app_tile(t, format!("program-{index}"), info, &name, if everything { Tile::Excluded } else { Tile::Chosen })
-                .label(format!("{name}, {state}"))
-                .help(hint)
-                .on_press(move |s: &mut Ui| s.remove_program(index)),
-        );
-    }
-    for app in s.suggestions() {
-        let path = app.path.clone();
-        tiles = tiles.child(
-            app_tile(t, format!("open-{}", app.path), Some(app), &app.name, Tile::Offered)
-                .label(format!("{}, open now. {}", app.name, if everything { "Leave alone" } else { "Combine" }))
-                .help(if everything { "Open now · click to leave alone" } else { "Open now · click to combine" })
-                .on_press(move |s: &mut Ui| s.add_program(&path)),
-        );
-    }
-    tiles = tiles.child(
-        col()
-            .key("browse")
-            .w(84.0)
-            .py(8.0)
-            .gap(6.0)
-            .items_center()
-            .radius(10.0)
-            .hover(t.hover)
-            .press(t.press)
-            .focusable(true)
-            .role("button")
-            .label("Choose a program")
-            .help("Choose a program")
-            .on_press_tx(|_: &mut Ui, tx: &mut Tx| {
-                let options = FileDialogOptions { title: "Choose a program".into(), ..Default::default() }.filter("Programs", &["exe"]);
-                tx.open_file(options, |s: &mut Ui, picked, _| {
-                    if let Ok(Some(path)) = picked {
-                        s.add_program(&path.to_string_lossy());
-                    }
-                });
-            })
-            .child(
-                el().key("plus")
-                    .size(36.0, 36.0)
-                    .radius(10.0)
-                    .border(1.25, t.separator)
-                    .border_dash(4.0, 3.0)
-                    .center()
-                    .child(text("+").font(t.ty.title).color(t.ink_faint)),
-            )
-            .child(el().key("spacer").h(15.0)),
-    );
-    section(
+    let explain = if everything {
+        "Every program on this PC is combined, apart from the ones in the list below."
+    } else {
+        "Only the programs in the list below are combined. Everything else uses the connection Windows picks."
+    };
+    let choose = section(
         t,
-        "programs",
-        "Programs",
+        "choose",
+        "What to combine",
         vec![
             setting(
                 t,
                 "scope",
-                if everything { "Combine everything except" } else { "Combine only" },
-                segmented(t, "scope-pick", "Which programs", &["Everything", "Chosen"], usize::from(!everything), 96.0, |s, pick| {
+                "Combine",
+                segmented(t, "scope-pick", "What to combine", &["Everything", "Only chosen"], usize::from(!everything), 104.0, |s, pick| {
                     let scope = if pick == 0 { Scope::Everything } else { Scope::Chosen };
                     if s.config.scope != scope {
                         s.config.scope = scope;
@@ -700,9 +871,84 @@ fn programs(s: &Ui, t: &Theme) -> El {
                     }
                 }),
             ),
-            tiles,
+            note(t, "explain", explain),
         ],
-    )
+    );
+
+    // Each choice keeps its own list; only the one in use shows.
+    let (title, empty, kind, hint) = if everything {
+        ("Never combine", "Nothing is left out. Add a program here to keep it on its usual connection.", Tile::Excluded, "Left alone · click to remove from this list")
+    } else {
+        ("Combine only these", "No programs yet. Add the ones you want combined.", Tile::Chosen, "Combined · click to remove from this list")
+    };
+    let mut listed = row().key("listed").flex_wrap().gap(4.0).w_full().padding(8.0);
+    for (index, entry) in s.programs().iter().enumerate() {
+        let info = s.info(entry);
+        let name = info.map_or_else(|| crate::apps::display_name(entry), |app| app.name.clone());
+        listed = listed.child(
+            app_tile(t, format!("program-{index}"), info, &name, kind)
+                .label(format!("{name}. Remove from this list"))
+                .help(hint)
+                .on_press(move |s: &mut Ui| s.remove_program(index)),
+        );
+    }
+    listed = listed.child(browse_tile(t));
+    let mut rows = Vec::new();
+    if s.programs().is_empty() {
+        rows.push(note(t, "empty", empty));
+    }
+    rows.push(listed);
+    let mut page = col().key("programs").gap(24.0).child(choose).child(section(t, "listed", title, rows));
+
+    let offered = s.suggestions();
+    if !offered.is_empty() {
+        let mut open = row().key("open").flex_wrap().gap(4.0).w_full().padding(8.0);
+        for app in offered {
+            let path = app.path.clone();
+            open = open.child(
+                app_tile(t, format!("open-{}", app.path), Some(app), &app.name, Tile::Offered)
+                    .label(format!("{}. Add to {}", app.name, title.to_lowercase()))
+                    .help("Click to add to the list above")
+                    .on_press(move |s: &mut Ui| s.add_program(&path)),
+            );
+        }
+        page = page.child(section(t, "offered", "Open now", vec![open]));
+    }
+    page
+}
+
+/// The tile that opens a file picker for a program not on screen.
+fn browse_tile(t: &Theme) -> El {
+    col()
+        .key("browse")
+        .w(84.0)
+        .py(8.0)
+        .gap(6.0)
+        .items_center()
+        .radius(10.0)
+        .hover(t.hover)
+        .press(t.press)
+        .focusable(true)
+        .role("button")
+        .label("Choose a program")
+        .on_press_tx(|_: &mut Ui, tx: &mut Tx| {
+            let options = FileDialogOptions { title: "Choose a program".into(), ..Default::default() }.filter("Programs", &["exe"]);
+            tx.open_file(options, |s: &mut Ui, picked, _| {
+                if let Ok(Some(path)) = picked {
+                    s.add_program(&path.to_string_lossy());
+                }
+            });
+        })
+        .child(
+            el().key("plus")
+                .size(36.0, 36.0)
+                .radius(10.0)
+                .border(1.25, t.separator)
+                .border_dash(4.0, 3.0)
+                .center()
+                .child(text("+").font(t.ty.title).color(t.ink_faint)),
+        )
+        .child(text("Browse").key("name").font(t.ty.small).color(t.ink_faint).a11y_hidden())
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -728,24 +974,26 @@ fn app_tile(t: &Theme, key: String, info: Option<&crate::apps::AppInfo>, name: &
             .child(text(name.chars().next().unwrap_or('?').to_uppercase().to_string()).font(t.ty.title).color(t.ink_soft)),
     };
     let badge = match kind {
-        Tile::Chosen => Some((t.accent, "✓")),
-        Tile::Excluded => Some((t.bad, "–")),
-        Tile::Offered => None,
+        Tile::Chosen => (t.accent, "✓"),
+        Tile::Excluded => (t.bad, "–"),
+        Tile::Offered => (t.ink_soft, "+"),
     };
-    let mut icon = el().key("well").size(36.0, 36.0).center().child(picture.opacity(if kind == Tile::Excluded { 0.45 } else { 1.0 }));
-    if let Some((color, sign)) = badge {
-        icon = icon.child(
+    let icon = el()
+        .key("well")
+        .size(36.0, 36.0)
+        .center()
+        .child(picture.opacity(if kind == Tile::Excluded { 0.5 } else { 1.0 }))
+        .child(
             el().key("badge")
                 .size(15.0, 15.0)
                 .radius(7.5)
                 .absolute(25.0, -3.0)
-                .fill(color)
+                .fill(badge.0)
                 .border(2.0, t.card)
                 .center()
                 .a11y_hidden()
-                .child(text(sign).font(t.ty.small).color(t.card)),
+                .child(text(badge.1).font(t.ty.small).color(t.card)),
         );
-    }
     col()
         .key(key)
         .w(84.0)
@@ -753,7 +1001,7 @@ fn app_tile(t: &Theme, key: String, info: Option<&crate::apps::AppInfo>, name: &
         .gap(6.0)
         .items_center()
         .radius(10.0)
-        .opacity(if kind == Tile::Offered { 0.5 } else { 1.0 })
+        .opacity(if kind == Tile::Offered { 0.7 } else { 1.0 })
         .hover(t.hover)
         .press(t.press)
         .focusable(true)
@@ -762,10 +1010,13 @@ fn app_tile(t: &Theme, key: String, info: Option<&crate::apps::AppInfo>, name: &
         .child(text(name.to_string()).key("name").font(t.ty.small).color(t.ink_soft).w(78.0).align(Align::Center).wrap().max_lines(2).a11y_hidden())
 }
 
-fn sharing(s: &Ui, t: &Theme) -> El {
+// ---------------------------------------------------------------------------------------------
+// Settings.
+
+fn settings_page(s: &Ui, t: &Theme) -> El {
     let current = MODES.iter().position(|(mode, _)| *mode == s.config.mode).unwrap_or(0);
     let names: Vec<&str> = MODES.iter().map(|(_, name)| *name).collect();
-    let switch = |key: &str, label: &str, on: bool, flip: fn(&mut Config)| {
+    let engine_switch = |key: &str, label: &str, on: bool, flip: fn(&mut Config)| {
         setting(
             t,
             key,
@@ -776,7 +1027,12 @@ fn sharing(s: &Ui, t: &Theme) -> El {
             }),
         )
     };
-    section(
+    let mode_note = match s.config.mode {
+        Mode::Smart => "Uses whichever connection is free and quick, and keeps each website on one connection so sign-ins stay put.",
+        Mode::Balanced => "Shares new downloads in turn, following each connection's share.",
+        Mode::Backup => "Uses the first connection. The others step in only if it drops.",
+    };
+    let sharing = section(
         t,
         "sharing",
         "Sharing",
@@ -791,17 +1047,158 @@ fn sharing(s: &Ui, t: &Theme) -> El {
                         s.config.mode = mode;
                         s.send();
                     }
-                })
-                .help(match s.config.mode {
-                    Mode::Smart => "Uses whichever connection is free and quick, and keeps each site on one connection",
-                    Mode::Balanced => "Shares traffic in turn, following each connection's share",
-                    Mode::Backup => "Uses the first connection; the others step in only if it drops",
                 }),
             ),
-            switch("quic", "Boost browsers", s.config.steer_quic, |c| c.steer_quic = !c.steer_quic),
-            switch("ipv4", "Prefer IPv4", s.config.prefer_ipv4, |c| c.prefer_ipv4 = !c.prefer_ipv4),
+            note(t, "mode-note", mode_note),
+            engine_switch("quic", "Boost browsers", s.config.steer_quic, |c| c.steer_quic = !c.steer_quic),
+            engine_switch("ipv4", "Prefer IPv4", s.config.prefer_ipv4, |c| c.prefer_ipv4 = !c.prefer_ipv4),
         ],
-    )
+    );
+
+    let appearance = match s.prefs.appearance {
+        Appearance::Auto => 0,
+        Appearance::Light => 1,
+        Appearance::Dark => 2,
+    };
+    let general = section(
+        t,
+        "general",
+        "General",
+        vec![
+            setting(
+                t,
+                "autostart",
+                "Open when Windows starts",
+                toggle(t, "autostart-switch", "Open when Windows starts", s.autostart, |s: &mut Ui| {
+                    let want = !s.autostart;
+                    if autostart::set(want) {
+                        s.autostart = want;
+                    }
+                }),
+            ),
+            setting(
+                t,
+                "tray",
+                "Keep running in the notification area when closed",
+                toggle(t, "tray-switch", "Keep running in the notification area when closed", s.prefs.keep_in_tray, |s: &mut Ui| {
+                    s.prefs.keep_in_tray = !s.prefs.keep_in_tray;
+                    s.prefs.save();
+                }),
+            ),
+            setting(
+                t,
+                "appearance",
+                "Appearance",
+                segmented(t, "appearance-pick", "Appearance", &["Auto", "Light", "Dark"], appearance, 64.0, |s, pick| {
+                    s.prefs.appearance = [Appearance::Auto, Appearance::Light, Appearance::Dark][pick.min(2)];
+                    s.prefs.save();
+                }),
+            ),
+        ],
+    );
+
+    let service = match (&s.offline, &s.status) {
+        (Some(_), _) | (None, None) => "Not running".to_string(),
+        (None, Some(status)) => format!("Running · {}", status.version),
+    };
+    let about = section(
+        t,
+        "about",
+        "About",
+        vec![
+            setting(t, "version", "Version", text(env!("CARGO_PKG_VERSION")).key("value").font(t.ty.body).color(t.ink_soft)),
+            setting(t, "service", "Background service", text(service).key("value").font(t.ty.body).color(t.ink_soft)),
+            setting(
+                t,
+                "updates",
+                "Updates",
+                word_button(t, "check", "Check online").help("Opens DualLink's releases page").on_press_tx(|_: &mut Ui, tx: &mut Tx| {
+                    let _ = tx.open_url(RELEASES);
+                }),
+            ),
+            setting(
+                t,
+                "logs",
+                "Log files",
+                word_button(t, "open-logs", "Show folder").on_press(|_: &mut Ui| {
+                    let base = std::env::var_os("ProgramData").map_or_else(|| std::path::PathBuf::from(r"C:\ProgramData"), std::path::PathBuf::from);
+                    let _ = std::process::Command::new("explorer.exe").arg(base.join("DualLink")).spawn();
+                }),
+            ),
+        ],
+    );
+    col().key("settings").gap(24.0).child(sharing).child(general).child(about)
+}
+
+// ---------------------------------------------------------------------------------------------
+// Activity.
+
+fn activity_page(s: &Ui, t: &Theme) -> El {
+    let value = |v: String| text(v).key("value").font(t.ty.body).color(t.ink_soft);
+    let (open, routed, bypassed) =
+        s.status.as_ref().map_or((0, 0, 0), |status| (status.active_connections, status.routed_connections, status.bypassed_connections));
+    let now = section(
+        t,
+        "now",
+        "Right now",
+        vec![
+            setting(t, "open", "Open through DualLink", value(open.to_string())),
+            setting(t, "routed", "Combined since switched on", value(routed.to_string())),
+            setting(t, "bypassed", "Left on their usual connection", value(bypassed.to_string())),
+        ],
+    );
+
+    let links = s.ordered();
+    let mut rows: Vec<El> = links
+        .iter()
+        .enumerate()
+        .map(|(index, link)| {
+            let mut facts = vec![link.info.address.to_string(), format!("↓ {}  ↑ {}", bytes(link.downloaded), bytes(link.uploaded))];
+            if let Some(ms) = link.latency_ms {
+                facts.push(format!("{ms:.0} ms"));
+            }
+            if link.failures > 0 {
+                facts.push(format!("{} failed", link.failures));
+            }
+            row()
+                .key(format!("detail-{}", link.info.id))
+                .w_full()
+                .min_h(52.0)
+                .px(12.0)
+                .py(8.0)
+                .gap(12.0)
+                .center_y()
+                .child(el().key("colour").size(8.0, 8.0).radius(4.0).fill(link_color(s, t, link, index)).a11y_hidden())
+                .child(
+                    col()
+                        .key("names")
+                        .grow(1.0)
+                        .min_w(0.0)
+                        .gap(2.0)
+                        .child(text(link_title(&link.info)).key("name").font(t.ty.body_medium).color(t.ink))
+                        .child(text(link.info.description.clone()).key("adapter").font(t.ty.small).color(t.ink_faint).truncate()),
+                )
+                .child(text(facts.join("   ")).key("facts").font(t.ty.small).color(t.ink_soft).shrink().min_w(0.0).align(Align::End).wrap())
+        })
+        .collect();
+    if rows.is_empty() {
+        rows.push(note(t, "none", "No connections found."));
+    }
+
+    let mono = TextStyle { size: 11.5, line_height: 17.0, ..type_::MONO_CAPTION };
+    let mut log = col().key("lines").w_full().px(12.0).py(10.0).gap(2.0);
+    if s.log.is_empty() {
+        log = log.child(text("Nothing yet.").font(t.ty.small).color(t.ink_faint));
+    }
+    for (index, line) in s.log.iter().rev().enumerate() {
+        log = log.child(text(line.clone()).key(format!("line-{index}")).font(mono).color(t.ink_soft).wrap());
+    }
+    col()
+        .key("activity")
+        .gap(24.0)
+        .child(now)
+        .child(section(t, "details", "Connections", rows))
+        .child(section(t, "log", "Recent events, newest first", vec![log]))
 }
 
 /// A named state the window can be put in.
@@ -817,6 +1214,22 @@ pub const SCENES: &[Scene] = &[
     }),
     ("four", |s| demo(s, EngineState::On, 4)),
     ("off", |s| demo(s, EngineState::Off, 2)),
+    ("programs", |s| {
+        demo(s, EngineState::On, 2);
+        s.page = Page::Programs;
+        s.config.excluded = vec![DEMO_PROGRAMS[3].into()];
+        known(s, DEMO_PROGRAMS);
+        s.open_now = DEMO_PROGRAMS[..3].iter().map(|p| p.to_lowercase()).collect();
+    }),
+    ("settings", |s| {
+        demo(s, EngineState::On, 2);
+        s.page = Page::Settings;
+    }),
+    ("activity", |s| {
+        demo(s, EngineState::On, 3);
+        s.page = Page::Activity;
+        s.log = vec!["2026-11-17 12:00:01Z Connections: Ethernet (192.168.1.20), Wi-Fi (192.168.0.104)".into(), "2026-11-17 12:00:02Z Combining switched on.".into()];
+    }),
     ("open", |s| {
         demo(s, EngineState::On, 3);
         s.expanded = Some("{B}".into());
