@@ -7,7 +7,7 @@
 use crate::state::{HISTORY, Speed, Ui, step_cap};
 use crate::theme::{Theme, theme};
 use duallink_core::{Config, EngineState, LinkInfo, LinkKind, LinkStatus, Mode, Scope, Status};
-use rune::{Align, Color, Cx, El, FileDialogOptions, LineCap, Path, ScrollSpec, Shape, Tx, canvas, col, el, row, text, text_input};
+use rune::{Align, Color, Cx, El, FileDialogOptions, LineCap, Path, ScrollSpec, Shape, Tx, canvas, col, el, row, text};
 use rune_kit::{Button, ButtonVariant, ControlSize, SegmentedControl, Switch};
 
 const MODES: [(Mode, &str, &str); 3] = [
@@ -89,7 +89,8 @@ fn header(s: &Ui, t: &Theme) -> El {
         .h(60.0)
         .px(24.0)
         .center_y()
-        .gap(14.0)
+        .gap(10.0)
+        .child(mark(t))
         .child(text("DualLink").key("name").font(t.ty.title).color(t.ink))
         .child(el().key("gap").grow(1.0))
         .child(
@@ -111,6 +112,17 @@ fn header(s: &Ui, t: &Theme) -> El {
                 })
                 .build(&t.k),
         )
+}
+
+/// DualLink's mark: two paths running together into one.
+fn mark(t: &Theme) -> El {
+    let (top, bottom) = (t.link(1), t.link(0));
+    let shape = Shape::new()
+        .stroke_path(&Path::new().move_to([10.0, 14.0]).cubic_to([19.0, 14.0], [19.0, 24.0], [27.0, 24.0]), 5.5, LineCap::Round, top)
+        .stroke_path(&Path::new().move_to([10.0, 34.0]).cubic_to([19.0, 34.0], [19.0, 24.0], [27.0, 24.0]), 5.5, LineCap::Round, bottom)
+        .line([27.0, 24.0], [38.0, 24.0], 5.5, LineCap::Round, t.ink)
+        .view_box(48.0, 48.0);
+    el().key("mark").size(26.0, 26.0).radius(7.0).fill(t.raised).border(t.hair, t.line).shape(shape).a11y_hidden()
 }
 
 /// A line under the header, only when something needs the user's attention.
@@ -452,58 +464,65 @@ fn link_settings(s: &Ui, t: &Theme) -> Option<El> {
 
 fn scope_panel(s: &Ui, t: &Theme) -> El {
     let everything = s.config.scope == Scope::Everything;
-    let mut chips = row().key("chips").flex_wrap().gap(6.0).w_full();
-    for (index, program) in s.programs().iter().enumerate() {
-        let name = program.rsplit(['\\', '/']).next().unwrap_or(program).to_string();
-        chips = chips.child(
-            row()
-                .key(format!("program-{index}"))
-                .h(26.0)
-                .pl(10.0)
-                .pr(4.0)
-                .gap(2.0)
-                .center_y()
-                .radius(13.0)
-                .fill(t.raised)
-                .child(text(name.clone()).key("name").font(t.ty.body).color(t.ink).help(program.clone()))
-                .child(
-                    Button::new("×")
-                        .control_size(ControlSize::Mini)
-                        .variant(ButtonVariant::GhostMuted)
-                        .help(format!("Remove {name}"))
-                        .on_press(move |s: &mut Ui| s.remove_program(index))
-                        .build(&t.k),
-                ),
+    let mut tiles = row().key("tiles").flex_wrap().gap(4.0).w_full();
+    for (index, entry) in s.programs().iter().enumerate() {
+        let info = s.info(entry);
+        let name = info.map_or_else(|| crate::apps::display_name(entry), |app| app.name.clone());
+        let (state, hint) = if everything { ("left alone", "Left alone · click to combine") } else { ("combined", "Combined · click to remove") };
+        tiles = tiles.child(
+            app_tile(t, format!("program-{index}"), info, &name, if everything { Tile::Excluded } else { Tile::Chosen })
+                .label(format!("{name}, {state}"))
+                .help(hint)
+                .on_press(move |s: &mut Ui| s.remove_program(index)),
         );
     }
-    let field = el()
-        .key("field")
-        .grow(1.0)
-        .min_w(0.0)
-        .h(30.0)
-        .px(10.0)
-        .center_y()
-        .radius(8.0)
-        .fill(t.raised)
-        .child(
-            text_input(&s.program, t.ty.body)
-                .key("program")
-                .grow(1.0)
-                .min_w(0.0)
-                .label(if everything { "Program to leave out" } else { "Program to combine" })
-                .placeholder(if everything { "Leave out a program" } else { "Add a program" }, t.ink_faint)
-                .color(t.ink)
-                .on_edit(|s: &mut Ui| &mut s.program)
-                .on_submit(|s: &mut Ui, _: &mut Tx| {
-                    let name = s.program.text.clone();
-                    s.add_program(&name);
-                }),
+    for app in s.suggestions() {
+        let path = app.path.clone();
+        tiles = tiles.child(
+            app_tile(t, format!("open-{}", app.path), Some(app), &app.name, Tile::Offered)
+                .label(format!("{}, open now. {}", app.name, if everything { "Leave alone" } else { "Combine" }))
+                .help(if everything { "Open now · click to leave alone" } else { "Open now · click to combine" })
+                .on_press(move |s: &mut Ui| s.add_program(&path)),
         );
+    }
+    tiles = tiles.child(
+        col()
+            .key("browse")
+            .w(84.0)
+            .py(8.0)
+            .gap(6.0)
+            .items_center()
+            .radius(12.0)
+            .hover(t.k.c.hover)
+            .press(t.k.c.pressed)
+            .focusable(true)
+            .role("button")
+            .label("Choose a program")
+            .help("Choose a program")
+            .on_press_tx(|_: &mut Ui, tx: &mut Tx| {
+                let options = FileDialogOptions { title: "Choose a program".into(), ..Default::default() }.filter("Programs", &["exe"]);
+                tx.open_file(options, |s: &mut Ui, picked, _| {
+                    if let Ok(Some(path)) = picked {
+                        s.add_program(&path.to_string_lossy());
+                    }
+                });
+            })
+            .child(
+                el().key("plus")
+                    .size(36.0, 36.0)
+                    .radius(10.0)
+                    .border(1.5, t.line)
+                    .border_dash(4.0, 3.0)
+                    .center()
+                    .child(text("+").font(t.ty.figure).color(t.ink_faint)),
+            )
+            .child(el().key("spacer").h(15.0)),
+    );
     panel("scope", t)
         .grow(1.0)
         .min_w(0.0)
         .padding(16.0)
-        .gap(12.0)
+        .gap(10.0)
         .child(
             row().key("top").center_y().gap(12.0).child(label("Combine", t).key("label")).child(el().key("gap").grow(1.0)).child(
                 SegmentedControl::new(&["Everything", "Chosen"], Some(usize::from(!everything)))
@@ -519,27 +538,65 @@ fn scope_panel(s: &Ui, t: &Theme) -> El {
                     .build(&t.k),
             ),
         )
-        .child(el().key("scroll").min_h(26.0).max_h(92.0).scroll(ScrollSpec { stick_bottom: false }).child(chips))
-        .child(
-            row().key("add").gap(8.0).center_y().child(field).child(
-                Button::new("Browse")
-                    .control_size(ControlSize::Small)
-                    .variant(ButtonVariant::Outline)
-                    .help("Pick a program from this PC")
-                    .on_press_tx(|_: &mut Ui, tx: &mut Tx| {
-                        let options =
-                            FileDialogOptions { title: "Choose a program".into(), ..Default::default() }.filter("Programs", &["exe"]);
-                        tx.open_file(options, |s: &mut Ui, picked, _| {
-                            if let Ok(Some(path)) = picked {
-                                s.add_program(&path.to_string_lossy());
-                            }
-                        });
-                    })
-                    .build(&t.k),
-            ),
-        )
+        .child(el().key("scroll").max_h(176.0).scroll(ScrollSpec { stick_bottom: false }).child(tiles))
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum Tile {
+    /// Listed, and combined.
+    Chosen,
+    /// Listed, and left alone.
+    Excluded,
+    /// Open now, not listed.
+    Offered,
+}
+
+/// A program as its icon and name.
+fn app_tile(t: &Theme, key: String, info: Option<&crate::apps::AppInfo>, name: &str, kind: Tile) -> El {
+    let picture = match info.and_then(|app| app.icon.as_ref()) {
+        Some(pixels) => el().key("icon").size(32.0, 32.0).pixels(pixels),
+        None => el()
+            .key("icon")
+            .size(32.0, 32.0)
+            .radius(9.0)
+            .fill(t.raised)
+            .center()
+            .child(text(name.chars().next().unwrap_or('?').to_uppercase().to_string()).font(t.ty.title).color(t.ink_soft)),
+    };
+    let badge = match kind {
+        Tile::Chosen => Some((t.accent, "✓")),
+        Tile::Excluded => Some((t.bad, "–")),
+        Tile::Offered => None,
+    };
+    let mut icon = el().key("well").size(36.0, 36.0).center().child(picture.opacity(if kind == Tile::Excluded { 0.45 } else { 1.0 }));
+    if let Some((color, mark)) = badge {
+        icon = icon.child(
+            el().key("badge")
+                .size(15.0, 15.0)
+                .radius(7.5)
+                .absolute(25.0, -3.0)
+                .fill(color)
+                .border(2.0, t.panel)
+                .center()
+                .a11y_hidden()
+                .child(text(mark).font(t.ty.label).color(t.ground)),
+        );
+    }
+    col()
+        .key(key)
+        .w(84.0)
+        .py(8.0)
+        .gap(6.0)
+        .items_center()
+        .radius(12.0)
+        .opacity(if kind == Tile::Offered { 0.5 } else { 1.0 })
+        .hover(t.k.c.hover)
+        .press(t.k.c.pressed)
+        .focusable(true)
+        .role("button")
+        .child(icon)
+        .child(text(name).key("name").font(t.ty.label_case).color(t.ink_soft).w(78.0).align(Align::Center).wrap().max_lines(2).a11y_hidden())
+}
 fn sharing_panel(s: &Ui, t: &Theme) -> El {
     let current = MODES.iter().position(|(mode, _, _)| *mode == s.config.mode).unwrap_or(0);
     let names: Vec<&str> = MODES.iter().map(|(_, name, _)| *name).collect();
@@ -606,7 +663,12 @@ pub type Scene = (&'static str, fn(&mut Ui));
 
 /// States the window can be shown in without a service, for checking how it looks.
 pub const SCENES: &[Scene] = &[
-    ("on", |s| demo(s, EngineState::On, 3)),
+    ("on", |s| {
+        demo(s, EngineState::On, 3);
+        s.config.excluded = vec![DEMO_PROGRAMS[3].into()];
+        known(s, DEMO_PROGRAMS);
+        s.open_now = DEMO_PROGRAMS[..3].iter().map(|p| p.to_lowercase()).collect();
+    }),
     ("four", |s| demo(s, EngineState::On, 4)),
     ("off", |s| demo(s, EngineState::Off, 2)),
     ("open", |s| {
@@ -616,7 +678,8 @@ pub const SCENES: &[Scene] = &[
     ("chosen", |s| {
         demo(s, EngineState::On, 2);
         s.config.scope = Scope::Chosen;
-        s.config.apps = vec!["steam.exe".into(), r"C:\Program Files\Fetch\fetch.exe".into(), "EpicGamesLauncher.exe".into()];
+        s.config.apps = DEMO_PROGRAMS.iter().map(|p| p.to_string()).collect();
+        known(s, DEMO_PROGRAMS);
     }),
     ("no-links", |s| demo(s, EngineState::NoLinks, 0)),
     ("failed", |s| {
@@ -627,6 +690,21 @@ pub const SCENES: &[Scene] = &[
     }),
     ("offline", |s| s.offline = Some(crate::client::NOT_RUNNING.into())),
 ];
+
+const DEMO_PROGRAMS: &[&str] = &[
+    r"C:\Program Files (x86)\Steam\steam.exe",
+    r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+    r"C:\Program Files\BraveSoftware\Brave-Origin\Application\brave.exe",
+    r"C:\Program Files\Epic Games\Launcher\Portal\Binaries\Win64\EpicGamesLauncher.exe",
+];
+
+/// Reads programs' names and icons right away, as the watching thread would.
+fn known(s: &mut Ui, paths: &[&str]) {
+    for path in paths {
+        let app = crate::apps::AppInfo::read(path);
+        s.apps.insert(app.path.clone(), app);
+    }
+}
 
 fn demo(s: &mut Ui, state: EngineState, count: usize) {
     let all = [

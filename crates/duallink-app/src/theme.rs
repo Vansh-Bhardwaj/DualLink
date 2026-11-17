@@ -20,6 +20,8 @@ pub struct Type {
     pub body: TextStyle,
     /// Section labels and units, set in capitals.
     pub label: TextStyle,
+    /// The same size in ordinary case, for short names under icons.
+    pub label_case: TextStyle,
 }
 
 pub struct Theme {
@@ -68,6 +70,7 @@ pub fn theme(dark: bool, scale: f32) -> Theme {
             title: style(15.0, 550.0, -0.1, false),
             body: style(13.0, 450.0, 0.0, true),
             label: style(11.0, 600.0, 0.9, false),
+            label_case: style(11.5, 500.0, 0.0, false),
         },
         hair: 1.0 / scale,
         ground,

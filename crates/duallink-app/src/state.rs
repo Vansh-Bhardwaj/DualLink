@@ -1,8 +1,9 @@
 //! What the window shows, and how it stays in step with the service.
 
+use crate::apps::{self, AppInfo};
 use crate::client::Client;
 use duallink_core::{Config, EngineState, LinkChoice, LinkStatus, Status};
-use rune::{TextEdit, Waker};
+use rune::Waker;
 use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::time::Duration;
@@ -41,11 +42,22 @@ pub struct Ui {
     pub history: VecDeque<Vec<(String, f32)>>,
     pub peak: f32,
     pub expanded: Option<String>,
-    pub program: TextEdit,
+    /// Names and icons of programs, by lower-cased full path.
+    pub apps: HashMap<String, AppInfo>,
+    /// Programs with a window on screen, as lower-cased full paths, in the order found.
+    pub open_now: Vec<String>,
     previous: Option<(u64, Counters)>,
     sent: u64,
     changes: Option<Sender<(u64, Config)>>,
     reports: Option<Receiver<Report>>,
+    wanted: Option<Sender<Vec<String>>>,
+    app_news: Option<Receiver<AppNews>>,
+}
+
+/// What the program-watching thread found.
+pub enum AppNews {
+    Info(AppInfo),
+    OpenNow(Vec<String>),
 }
 
 impl Default for Ui {
@@ -59,11 +71,14 @@ impl Default for Ui {
             history: VecDeque::new(),
             peak: 0.0,
             expanded: None,
-            program: TextEdit::new(""),
+            apps: HashMap::new(),
+            open_now: Vec::new(),
             previous: None,
             sent: 0,
             changes: None,
             reports: None,
+            wanted: None,
+            app_news: None,
         }
     }
 }
@@ -72,6 +87,7 @@ impl Ui {
     /// Starts the thread that asks the service how things are every second and passes on
     /// the user's changes. `wake` redraws the window when there is news.
     pub fn connect(&mut self, wake: Waker) {
+        let wake2 = wake.clone();
         let (change_tx, change_rx) = mpsc::channel::<(u64, Config)>();
         let (report_tx, report_rx) = mpsc::channel();
         self.changes = Some(change_tx);
@@ -98,15 +114,88 @@ impl Ui {
                 wake();
             }
         });
+        self.watch_programs(wake2);
+    }
+
+    /// Starts the thread that reads program names and icons, and every few seconds looks for
+    /// programs open on screen, so they can be offered with a click.
+    fn watch_programs(&mut self, wake: Waker) {
+        let (wanted_tx, wanted_rx) = mpsc::channel::<Vec<String>>();
+        let (news_tx, news_rx) = mpsc::channel();
+        self.wanted = Some(wanted_tx);
+        self.app_news = Some(news_rx);
+        let _ = self.wanted.as_ref().map(|w| w.send(self.listed_paths()));
+        std::thread::spawn(move || {
+            let mut known = std::collections::HashSet::new();
+            let mut wanted: Vec<String> = Vec::new();
+            loop {
+                let open = apps::open_now();
+                let lower: Vec<String> = open.iter().map(|p| p.to_lowercase()).collect();
+                let mut fresh = false;
+                for path in open.iter().chain(wanted.iter()) {
+                    if known.insert(path.to_lowercase()) {
+                        fresh |= news_tx.send(AppNews::Info(AppInfo::read(path))).is_ok();
+                    }
+                }
+                if news_tx.send(AppNews::OpenNow(lower)).is_err() {
+                    return;
+                }
+                if fresh {
+                    wake();
+                }
+                match wanted_rx.recv_timeout(Duration::from_secs(4)) {
+                    Ok(list) => wanted = list,
+                    Err(RecvTimeoutError::Timeout) => {}
+                    Err(RecvTimeoutError::Disconnected) => return,
+                }
+                while let Ok(list) = wanted_rx.try_recv() {
+                    wanted = list;
+                }
+            }
+        });
+    }
+
+    /// The listed programs given as full paths: the ones whose icons can be read without
+    /// the program running.
+    fn listed_paths(&self) -> Vec<String> {
+        self.config.apps.iter().chain(&self.config.excluded).filter(|p| p.contains(['\\', '/'])).cloned().collect()
+    }
+
+    /// What is known about a listed program: by full path, or for a bare file name, any
+    /// known program with that name.
+    pub fn info(&self, entry: &str) -> Option<&AppInfo> {
+        let entry = entry.trim().to_lowercase();
+        if entry.contains(['\\', '/']) {
+            return self.apps.get(&entry);
+        }
+        self.apps.values().find(|app| app.path.rsplit(['\\', '/']).next() == Some(entry.as_str()))
+    }
+
+    /// Programs open now that aren't listed yet, to offer with a click.
+    pub fn suggestions(&self) -> Vec<&AppInfo> {
+        let listed = self.programs();
+        self.open_now
+            .iter()
+            .filter_map(|path| self.apps.get(path))
+            .filter(|app| !listed.iter().any(|entry| self.info(entry).is_some_and(|known| known.path == app.path)))
+            .take(10)
+            .collect()
     }
 
     /// Takes in everything the service has reported since the last frame.
     pub fn absorb(&mut self) -> bool {
         let Some(reports) = &self.reports else { return false };
         let pending: Vec<Report> = reports.try_iter().collect();
-        let changed = !pending.is_empty();
+        let mut changed = !pending.is_empty();
         for report in pending {
             self.take(report);
+        }
+        let news: Vec<AppNews> = self.app_news.as_ref().map(|n| n.try_iter().collect()).unwrap_or_default();
+        for item in news {
+            changed |= match item {
+                AppNews::Info(app) => self.apps.insert(app.path.clone(), app).is_none(),
+                AppNews::OpenNow(open) => std::mem::replace(&mut self.open_now, open.clone()) != open,
+            };
         }
         changed
     }
@@ -169,6 +258,9 @@ impl Ui {
         if let Some(changes) = &self.changes {
             let _ = changes.send((self.sent, self.config.clone()));
         }
+        if let Some(wanted) = &self.wanted {
+            let _ = wanted.send(self.listed_paths());
+        }
     }
 
     pub fn links(&self) -> &[LinkStatus] {
@@ -230,7 +322,6 @@ impl Ui {
             list.push(name);
             self.send();
         }
-        self.program = TextEdit::new("");
     }
 
     pub fn remove_program(&mut self, index: usize) {
