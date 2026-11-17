@@ -2,6 +2,11 @@
 
 All notable DualLink changes are recorded here. Versions follow semantic versioning.
 
+## 5.0.0 - 2026-11-17
+
+- DualLink 5: a native rewrite that combines any number of connections, for everything on the PC or only chosen programs, with one small background service and a new window. See [the release notes](docs/RELEASE_NOTES_5.0.0.md) and the dev entries below.
+- The README, privacy statement and security policy describe DualLink 5. Packaging lists every Rust crate in the third-party notices and writes an SPDX software bill of materials.
+
 ## 5.0.0-dev.3 - 2026-11-17
 
 - Smart sharing now spreads a download or speed test that opens many connections to one server across the links. Before, it kept every connection to a server on the link it used first, so those never combined. Sign-ins, which connect one after another, still keep one address.
