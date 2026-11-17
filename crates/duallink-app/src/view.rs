@@ -363,7 +363,7 @@ fn sidebar(s: &Ui, t: &Theme, fit: Fit) -> El {
         }
         bar = bar
             .child(text("Connections").key("heading").font(t.ty.section).color(t.ink_faint).self_start().ml(10.0).mt(18.0).mb(4.0))
-            .child(el().key("scroll").w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(list).scroll_bar_styled(ScrollBarStyle::neutral(t.dark)));
+            .child(col().key("scroll").w_full().grow(1.0).min_h(0.0).scroll(ScrollSpec { stick_bottom: false }).child(list).scroll_bar_styled(ScrollBarStyle::neutral(t.dark)));
     }
     bar.child(master(s, t, fit.compact))
 }
@@ -553,7 +553,7 @@ fn main_panel(s: &Ui, t: &Theme, fit: Fit) -> El {
         .child(bar)
         .children(notice(s, t, fit))
         .child(
-            el().key(format!("scroll-{}", page_name(s.page)))
+            col().key(format!("scroll-{}", page_name(s.page)))
                 .w_full()
                 .grow(1.0)
                 .min_h(0.0)
@@ -615,8 +615,10 @@ fn overview(s: &Ui, t: &Theme, fit: Fit) -> El {
 /// A few numbers for this session, each in its own tile.
 fn totals(s: &Ui, t: &Theme) -> El {
     let links = s.ordered();
-    let down: u64 = links.iter().map(|l| l.downloaded).sum();
-    let up: u64 = links.iter().map(|l| l.uploaded).sum();
+    // Totals for this session of combining; with combining off there is none.
+    let on = s.state() == EngineState::On;
+    let down: u64 = if on { links.iter().map(|l| l.downloaded).sum() } else { 0 };
+    let up: u64 = if on { links.iter().map(|l| l.uploaded).sum() } else { 0 };
     let open = s.status.as_ref().filter(|_| s.offline.is_none()).map_or(0, |status| status.active_connections);
     let fastest = links
         .iter()
@@ -841,7 +843,10 @@ fn link_settings(s: &Ui, t: &Theme) -> Option<El> {
         t,
         "used",
         "Through DualLink",
-        text(format!("↓ {}   ↑ {}", bytes(link.downloaded), bytes(link.uploaded))).key("value").font(t.ty.body).color(t.ink_soft),
+        text(if s.state() == EngineState::On { format!("↓ {}   ↑ {}", bytes(link.downloaded), bytes(link.uploaded)) } else { "Off".into() })
+            .key("value")
+            .font(t.ty.body)
+            .color(t.ink_soft),
     ));
     Some(section(t, "link-settings", &link_title(&link.info), rows))
 }
@@ -1137,8 +1142,13 @@ fn settings_page(s: &Ui, t: &Theme) -> El {
 
 fn activity_page(s: &Ui, t: &Theme) -> El {
     let value = |v: String| text(v).key("value").font(t.ty.body).color(t.ink_soft);
-    let (open, routed, bypassed) =
-        s.status.as_ref().map_or((0, 0, 0), |status| (status.active_connections, status.routed_connections, status.bypassed_connections));
+    // The numbers describe this session of combining; with combining off there is none.
+    let on = s.state() == EngineState::On;
+    let (open, routed, bypassed) = s
+        .status
+        .as_ref()
+        .filter(|_| on)
+        .map_or((0, 0, 0), |status| (status.active_connections, status.routed_connections, status.bypassed_connections));
     let now = section(
         t,
         "now",
@@ -1155,7 +1165,10 @@ fn activity_page(s: &Ui, t: &Theme) -> El {
         .iter()
         .enumerate()
         .map(|(index, link)| {
-            let mut facts = vec![link.info.address.to_string(), format!("↓ {}  ↑ {}", bytes(link.downloaded), bytes(link.uploaded))];
+            let mut facts = vec![link.info.address.to_string()];
+            if on {
+                facts.push(format!("↓ {}  ↑ {}", bytes(link.downloaded), bytes(link.uploaded)));
+            }
             if let Some(ms) = link.latency_ms {
                 facts.push(format!("{ms:.0} ms"));
             }
